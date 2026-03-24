@@ -84,7 +84,7 @@ async function startServer() {
         z_step_mm: (settings.zStepMicrons || 100) / 1000,
         method: settings.method || 'laplacian',
         downscale: settings.downscale || 1.0,
-        pixel_resolution_um: (settings.pixelResolutionUm && settings.pixelResolutionUm > 0 ? settings.pixelResolutionUm : 1.0) * (settings.downscale || 1.0),
+        pixel_resolution_um: (settings.pixelResolutionUm && settings.pixelResolutionUm > 0 ? settings.pixelResolutionUm : 1.0) * (settings.downscale || 1.0) * (settings.xyCalibration || 1.0),
         preprocess: 'clahe',
         first_hit_fraction: 0.8,
         support_radius_px: 1,

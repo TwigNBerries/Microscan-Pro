@@ -58,8 +58,12 @@ const App: React.FC = () => {
     stabilizeXYMs: 500,
     settleZMs: 250,
     gcodeFlavor: 'marlin',
-    depthDownscale: true
+    depthDownscale: true,
+    xyCalibration: 1.0
   });
+
+  const [jogStepSize, setJogStepSize] = useState<number>(10);
+  const [jogFeedrate, setJogFeedrate] = useState<number>(3000);
 
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([]);
   const [stackedResults, setStackedResults] = useState<Record<string, StackResult>>({});
@@ -168,7 +172,8 @@ const App: React.FC = () => {
         method, 
         settings.depthDownscale, 
         settings.zStepMicrons,
-        pixelResolution
+        pixelResolution,
+        settings.xyCalibration
       );
       setDepthResults(prev => ({
         ...prev,
@@ -562,6 +567,32 @@ const App: React.FC = () => {
                       <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${settings.depthDownscale ? 'left-6' : 'left-1'}`} />
                     </button>
                   </div>
+
+                  <div className="mt-4 space-y-2">
+                    <div className="flex justify-between items-center px-1">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">XY Calibration Factor</label>
+                      <span className="text-[10px] font-mono text-cyan-400 font-bold">{settings.xyCalibration.toFixed(2)}x</span>
+                    </div>
+                    <div className="flex gap-4 items-center">
+                      <input 
+                        type="range" 
+                        min="0.5" 
+                        max="5.0" 
+                        step="0.01" 
+                        value={settings.xyCalibration} 
+                        onChange={(e) => setSettings(s => ({...s, xyCalibration: parseFloat(e.target.value)}))} 
+                        className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500" 
+                      />
+                      <input 
+                        type="number" 
+                        value={settings.xyCalibration} 
+                        step="0.01"
+                        onChange={(e) => setSettings(s => ({...s, xyCalibration: parseFloat(e.target.value) || 1.0}))}
+                        className="w-16 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-[10px] font-bold text-white text-center"
+                      />
+                    </div>
+                    <p className="text-[8px] text-slate-600 italic px-1">Compensates for sensor crop/downscale distortion. User reported 3.16x for 1080p.</p>
+                  </div>
                 </div>
 
                 <div>
@@ -598,7 +629,21 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'jog' && <JogController stackedResults={stackedResults} onSendCommand={sendManualCommand} isConnected={isConnected} isPrinterReady={isPrinterReady} onConnect={() => {}} onDisconnect={() => setIsConnected(false)} queueSize={remainingItems} />}
+        {activeTab === 'jog' && (
+          <JogController 
+            stackedResults={stackedResults} 
+            onSendCommand={sendManualCommand} 
+            isConnected={isConnected} 
+            isPrinterReady={isPrinterReady} 
+            onConnect={() => {}} 
+            onDisconnect={() => setIsConnected(false)} 
+            queueSize={remainingItems}
+            stepSize={jogStepSize}
+            setStepSize={setJogStepSize}
+            feedrate={jogFeedrate}
+            setFeedrate={setJogFeedrate}
+          />
+        )}
         {activeTab === 'stacking' && <StackingLab results={stackedResults} capturedImages={groupedCapturedImages} />}
         {activeTab === 'depth' && <DepthLab results={depthResults} capturedImages={groupedCapturedImages} onTriggerDepth={handleTriggerDepth} grid={grid} settings={settings} />}
         {activeTab === 'stitching' && <StitchingView images={capturedImages} stackedResults={stackedResults} grid={grid} settings={settings} />}

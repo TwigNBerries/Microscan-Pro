@@ -28,6 +28,10 @@ interface Props {
   onDisconnect: () => void;
   queueSize: number;
   stackedResults: Record<string, StackResult>;
+  stepSize: number;
+  setStepSize: (s: number) => void;
+  feedrate: number;
+  setFeedrate: (f: number) => void;
 }
 
 const JogController: React.FC<Props> = ({ 
@@ -37,10 +41,12 @@ const JogController: React.FC<Props> = ({
   onConnect, 
   onDisconnect, 
   queueSize,
-  stackedResults
+  stackedResults,
+  stepSize,
+  setStepSize,
+  feedrate,
+  setFeedrate
 }) => {
-  const [stepSize, setStepSize] = useState<number>(10);
-  const [feedrate, setFeedrate] = useState<number>(3000);
   const lastCommandTime = useRef<number>(0);
 
   const jog = useCallback(async (axis: 'X' | 'Y' | 'Z', distance: number) => {
