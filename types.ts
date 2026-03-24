@@ -2,8 +2,9 @@
 export type GCodeFlavor = 'marlin' | 'grbl';
 
 export interface ScanSettings {
-  sampleWidth: number; // in inches
-  sampleHeight: number; // in inches
+  sampleWidth: number; // in inches or cm
+  sampleHeight: number; // in inches or cm
+  units: 'in' | 'cm';
   magnification: number; // multiplier
   overlapPercent: number; // 0-100
   zStackCount: number;

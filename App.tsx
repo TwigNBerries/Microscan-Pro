@@ -50,6 +50,7 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<ScanSettings>({
     sampleWidth: 1.0,
     sampleHeight: 1.0,
+    units: 'in',
     magnification: 50,
     overlapPercent: 20,
     zStackCount: 3, 
@@ -85,15 +86,17 @@ const App: React.FC = () => {
   const grid: GridDimensions = useMemo(() => calculateGrid(settings), [settings]);
   const specs = useMemo(() => getInterpolatedData(settings.magnification), [settings.magnification]);
   
+  const [videoDimensions, setVideoDimensions] = useState({ width: 3840, height: 2160 });
+
   const pixelResolution = useMemo(() => {
-    return (specs.fovX / 3840) * 1000; // µm per pixel
-  }, [specs.fovX]);
+    return (specs.fovX / videoDimensions.width) * 1000; // µm per pixel
+  }, [specs.fovX, videoDimensions.width]);
 
   const scaleBarWidthPx = useMemo(() => {
     const targetMm = specs.fovX > 10 ? 5 : (specs.fovX > 2 ? 1 : 0.5);
-    const pxPerMm = 3840 / specs.fovX;
+    const pxPerMm = videoDimensions.width / specs.fovX;
     return { px: pxPerMm * targetMm, label: `${targetMm} mm` };
-  }, [specs.fovX]);
+  }, [specs.fovX, videoDimensions.width]);
 
   const groupedCapturedImages = useMemo(() => {
     const groups: Record<string, CapturedImage[]> = {};
@@ -197,6 +200,12 @@ const App: React.FC = () => {
         video: { width: { ideal: 3840 }, height: { ideal: 2160 } } 
       });
       
+      const track = stream.getVideoTracks()[0];
+      const settings = track.getSettings();
+      if (settings.width && settings.height) {
+        setVideoDimensions({ width: settings.width, height: settings.height });
+      }
+
       setCameraStream(prev => {
         if (prev) prev.getTracks().forEach(track => track.stop());
         return stream;
@@ -480,11 +489,24 @@ const App: React.FC = () => {
             <div className="lg:col-span-4 space-y-6">
               <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 backdrop-blur-xl shadow-2xl space-y-8">
                 <div>
-                   <h3 className="text-xs font-black uppercase tracking-widest text-cyan-500 mb-6 flex items-center gap-2"><Settings className="w-4 h-4" /> Optical & Spatial</h3>
+                   <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-xs font-black uppercase tracking-widest text-cyan-500 flex items-center gap-2"><Settings className="w-4 h-4" /> Optical & Spatial</h3>
+                      <div className="flex bg-slate-900 rounded-lg p-0.5 border border-slate-800">
+                        {(['in', 'cm'] as const).map(u => (
+                          <button
+                            key={u}
+                            onClick={() => setSettings(s => ({...s, units: u}))}
+                            className={`px-3 py-1 rounded-md text-[10px] font-black uppercase transition-all ${settings.units === u ? 'bg-cyan-500 text-slate-900 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                          >
+                            {u}
+                          </button>
+                        ))}
+                      </div>
+                   </div>
                    <div className="space-y-6">
                     <div className="grid grid-cols-2 gap-4">
-                      <NumberInput label="Sample Width" value={settings.sampleWidth} onChange={v => setSettings(s => ({...s, sampleWidth: v}))} suffix="in" />
-                      <NumberInput label="Sample Height" value={settings.sampleHeight} onChange={v => setSettings(s => ({...s, sampleHeight: v}))} suffix="in" />
+                      <NumberInput label="Sample Width" value={settings.sampleWidth} onChange={v => setSettings(s => ({...s, sampleWidth: v}))} suffix={settings.units} />
+                      <NumberInput label="Sample Height" value={settings.sampleHeight} onChange={v => setSettings(s => ({...s, sampleHeight: v}))} suffix={settings.units} />
                     </div>
                     
                     <div className="grid grid-cols-2 gap-4">

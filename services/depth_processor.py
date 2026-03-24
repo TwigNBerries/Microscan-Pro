@@ -6,6 +6,10 @@ import cv2
 import pywt
 from scipy.ndimage import median_filter, gaussian_filter
 
+def log(msg):
+    sys.stderr.write(f"DEPTH_PROC: {msg}\n")
+    sys.stderr.flush()
+
 # ---------------------- Helpers: file + image I/O ---------------------- #
 
 def list_images(folder):
@@ -361,7 +365,9 @@ def main():
     high_is_earliest = config.get('high_is_earliest', False)
 
     image_files = list_images(image_folder)
+    log(f"Found {len(image_files)} images in {image_folder}")
     
+    log(f"Computing topography using {method}...")
     height, mu, fpeak = compute_topomap_with_datum(
         image_files,
         z_step_mm=z_step_mm,
@@ -375,60 +381,67 @@ def main():
         min_global_fraction=min_global_fraction,
         high_is_earliest=high_is_earliest
     )
+    log("Topography computation complete.")
 
     # Convert height map to heatmap image with colorbar and scale bar
     valid = np.isfinite(height)
     vmin = float(np.nanmin(height)) if np.any(valid) else 0.0
     vmax = float(np.nanmax(height)) if np.any(valid) else 1.0
     
+    log(f"Generating heatmap plot (vmin={vmin:.3f}, vmax={vmax:.3f})...")
     # Create plot
-    plt.figure(figsize=(12, 10))
-    
-    # Use viridis (standard) so high is warm/yellow and low is cool/purple
-    plt.imshow(height, cmap='viridis', vmin=vmin, vmax=vmax)
-    
-    # Add colorbar
-    cbar = plt.colorbar()
-    cbar.set_label('Height (mm)', rotation=270, labelpad=15, fontsize=12, fontweight='bold')
-    
-    # Add X/Y axis labels in mm
-    h_img, w_img = height.shape
-    # pixel_resolution_um is microns per pixel
-    width_mm = (w_img * pixel_resolution_um) / 1000.0
-    height_mm = (h_img * pixel_resolution_um) / 1000.0
-    
-    plt.xlabel('Width (mm)', fontsize=12, fontweight='bold')
-    plt.ylabel('Height (mm)', fontsize=12, fontweight='bold')
-    
-    # Set ticks to mm
-    num_ticks = 5
-    x_ticks = np.linspace(0, w_img - 1, num_ticks)
-    x_labels = [f"{x * pixel_resolution_um / 1000.0:.2f}" for x in x_ticks]
-    plt.xticks(x_ticks, x_labels)
-    
-    y_ticks = np.linspace(0, h_img - 1, num_ticks)
-    y_labels = [f"{y * pixel_resolution_um / 1000.0:.2f}" for y in y_ticks]
-    plt.yticks(y_ticks, y_labels)
-    
-    # Add scale bar
-    # Let's add a 1mm scale bar
-    scale_bar_mm = 1.0
-    if width_mm < 2.0: scale_bar_mm = 0.5
-    if width_mm < 0.5: scale_bar_mm = 0.1
-    
-    scale_bar_px = (scale_bar_mm * 1000) / pixel_resolution_um
-    
-    # Draw scale bar in bottom right
-    bar_x = w_img - scale_bar_px - 40
-    bar_y = h_img - 40
-    plt.plot([bar_x, bar_x + scale_bar_px], [bar_y, bar_y], color='white', linewidth=4)
-    plt.text(bar_x + scale_bar_px/2, bar_y - 10, f'{scale_bar_mm} mm', color='white', ha='center', fontsize=14, fontweight='bold')
-    
-    # Save result image
-    output_image_path = os.path.join(image_folder, 'heatmap.jpg')
-    plt.tight_layout()
-    plt.savefig(output_image_path, dpi=150, bbox_inches='tight', pad_inches=0.5)
-    plt.close()
+    try:
+        plt.figure(figsize=(12, 10))
+        
+        # Use viridis (standard) so high is warm/yellow and low is cool/purple
+        plt.imshow(height, cmap='viridis', vmin=vmin, vmax=vmax)
+        
+        # Add colorbar
+        cbar = plt.colorbar()
+        cbar.set_label('Height (mm)', rotation=270, labelpad=15, fontsize=12, fontweight='bold')
+        
+        # Add X/Y axis labels in mm
+        h_img, w_img = height.shape
+        # pixel_resolution_um is microns per pixel
+        width_mm = (w_img * pixel_resolution_um) / 1000.0
+        height_mm = (h_img * pixel_resolution_um) / 1000.0
+        
+        plt.xlabel('Width (mm)', fontsize=12, fontweight='bold')
+        plt.ylabel('Height (mm)', fontsize=12, fontweight='bold')
+        
+        # Set ticks to mm
+        num_ticks = 5
+        x_ticks = np.linspace(0, w_img - 1, num_ticks)
+        x_labels = [f"{x * pixel_resolution_um / 1000.0:.2f}" for x in x_ticks]
+        plt.xticks(x_ticks, x_labels)
+        
+        y_ticks = np.linspace(0, h_img - 1, num_ticks)
+        y_labels = [f"{y * pixel_resolution_um / 1000.0:.2f}" for y in y_ticks]
+        plt.yticks(y_ticks, y_labels)
+        
+        # Add scale bar
+        # Let's add a 1mm scale bar
+        scale_bar_mm = 1.0
+        if width_mm < 2.0: scale_bar_mm = 0.5
+        if width_mm < 0.5: scale_bar_mm = 0.1
+        
+        scale_bar_px = (scale_bar_mm * 1000) / pixel_resolution_um
+        
+        # Draw scale bar in bottom right
+        bar_x = w_img - scale_bar_px - 40
+        bar_y = h_img - 40
+        if scale_bar_px < w_img:
+            plt.plot([bar_x, bar_x + scale_bar_px], [bar_y, bar_y], color='white', linewidth=4)
+            plt.text(bar_x + scale_bar_px/2, bar_y - 10, f'{scale_bar_mm} mm', color='white', ha='center', fontsize=14, fontweight='bold')
+        
+        # Save result image
+        output_image_path = os.path.join(image_folder, 'heatmap.jpg')
+        plt.tight_layout()
+        plt.savefig(output_image_path, dpi=100, bbox_inches='tight', pad_inches=0.5)
+        plt.close()
+        log("Heatmap plot saved.")
+    except Exception as e:
+        log(f"ERROR during plotting: {str(e)}")
     
     # Prepare result JSON
     result = {
@@ -440,6 +453,7 @@ def main():
     }
     
     print(json.dumps(result))
+    sys.stdout.flush()
 
 if __name__ == "__main__":
     main()
