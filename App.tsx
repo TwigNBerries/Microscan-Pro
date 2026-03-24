@@ -90,7 +90,7 @@ const App: React.FC = () => {
   const grid: GridDimensions = useMemo(() => calculateGrid(settings), [settings]);
   const specs = useMemo(() => getInterpolatedData(settings.magnification), [settings.magnification]);
   
-  const [videoDimensions, setVideoDimensions] = useState({ width: 1920, height: 1080 });
+  const [videoDimensions, setVideoDimensions] = useState({ width: 3840, height: 2160 });
 
   const pixelResolution = useMemo(() => {
     const res = (specs.fovX / videoDimensions.width) * 1000; // µm per pixel
@@ -176,10 +176,11 @@ const App: React.FC = () => {
 
     addLog(`DEPTH: Estimating surface topography for ${label} using ${method}...`);
     try {
+      const downscaleFactor = (settings.depthDownscale && videoDimensions.width > 2000) ? 2.0 : 1.0;
       const result = await computeDepthMap(
         images, 
         method, 
-        settings.depthDownscale, 
+        downscaleFactor, 
         settings.zStepMicrons,
         pixelResolution
       );
@@ -541,7 +542,7 @@ const App: React.FC = () => {
                     <div className="p-4 bg-slate-800/50 rounded-xl flex items-center justify-between border border-white/5">
                         <div>
                           <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Pixel Resolution</p>
-                          <p className="text-xs font-bold text-cyan-400">{pixelResolution.toFixed(2)} μm/px</p>
+                          <p className="text-xs font-bold text-cyan-400">{(pixelResolution * (settings.depthDownscale && videoDimensions.width > 2000 ? 2 : 1)).toFixed(2)} μm/px</p>
                         </div>
                         <Search className="w-4 h-4 text-slate-600" />
                     </div>

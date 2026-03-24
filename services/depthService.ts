@@ -133,7 +133,7 @@ export interface DepthMapResult {
 export const computeDepthMap = async (
   images: CapturedImage[], 
   method: DepthMethod = 'laplacian',
-  downscale: boolean = true,
+  downscaleFactor: number = 1.0,
   zStepMicrons: number = 100,
   pixelResolutionUm: number = 1.0
 ): Promise<DepthMapResult> => {
@@ -153,7 +153,7 @@ export const computeDepthMap = async (
       settings: {
         method,
         zStepMicrons,
-        downscale: downscale ? 2.0 : 1.0, // 2.0 factor for 4K -> 1080p
+        downscale: downscaleFactor,
         pixelResolutionUm,
         xyCalibration: 1.0
       }
