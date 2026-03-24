@@ -67,7 +67,7 @@ def preprocess_image(im, mode='none', lcn_ksize=15, clahe_clip=2.0, clahe_tile=8
     return im
 
 
-def fm_laplacian(im):
+def fm_wavelet(im):
     wavelet_family = 'db4'
     coeffs = pywt.dwt2(im, wavelet_family)
     LL, (LH, HL, HH) = coeffs
@@ -77,6 +77,18 @@ def fm_laplacian(im):
     if energy_map.shape != im.shape:
         energy_map = cv2.resize(energy_map, (im.shape[1], im.shape[0]))
     return energy_map
+
+
+def fm_laplacian(im):
+    # Modified Laplacian (ML)
+    # L(x,y) = |2I(x,y) - I(x-step, y) - I(x+step, y)| + |2I(x,y) - I(x, y-step) - I(x, y+step)|
+    kernel_x = np.array([[0, 0, 0], [-1, 2, -1], [0, 0, 0]], dtype=np.float32)
+    kernel_y = np.array([[0, -1, 0], [0, 2, 0], [0, -1, 0]], dtype=np.float32)
+    
+    lx = cv2.filter2D(im, cv2.CV_32F, kernel_x)
+    ly = cv2.filter2D(im, cv2.CV_32F, kernel_y)
+    
+    return np.abs(lx) + np.abs(ly)
 
 
 def fm_tenengrad(im):
@@ -259,7 +271,13 @@ def compute_topomap_with_datum(
         depths = depths[:n]
 
     fm_stack = np.zeros((n, h, w), dtype=np.float32)
-    fm_func = fm_laplacian if method == 'laplacian' else fm_tenengrad
+    
+    if method == 'wavelet' or method == 'wav1':
+        fm_func = fm_wavelet
+    elif method == 'tenengrad':
+        fm_func = fm_tenengrad
+    else:
+        fm_func = fm_laplacian
 
     for i, path in enumerate(image_files):
         im = read_gray_f32(path, downscale=downscale)

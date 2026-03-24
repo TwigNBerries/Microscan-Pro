@@ -158,7 +158,13 @@ const App: React.FC = () => {
 
     addLog(`DEPTH: Estimating surface topography for ${label} using ${method}...`);
     try {
-      const result = await computeDepthMap(images, method, settings.depthDownscale, settings.zStepMicrons);
+      const result = await computeDepthMap(
+        images, 
+        method, 
+        settings.depthDownscale, 
+        settings.zStepMicrons,
+        pixelResolution
+      );
       setDepthResults(prev => ({
         ...prev,
         [label]: { 
