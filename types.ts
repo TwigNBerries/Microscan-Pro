@@ -13,7 +13,7 @@ export interface ScanSettings {
   settleZMs: number; // Delay after each Z step
   gcodeFlavor: GCodeFlavor;
   depthDownscale: boolean; // Whether to downscale to 1080p for depth estimation
-  xyCalibration: number; // Scaling factor for XY axes in depth maps
+  xyScaleFactor: number; // Factor to scale X and Y axes for depth estimation
 }
 
 export interface GridDimensions {

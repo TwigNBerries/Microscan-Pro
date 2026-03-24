@@ -45,10 +45,10 @@ export const getAlphabetLabel = (index: number): string => {
 };
 
 export const calculateGrid = (settings: ScanSettings): GridDimensions => {
-  const { sampleWidth, sampleHeight, magnification, overlapPercent, units } = settings;
+  const { sampleWidth, sampleHeight, magnification, overlapPercent, units, xyScaleFactor = 1.0 } = settings;
   const data = getInterpolatedData(magnification);
-  const fovX = data.fovX;
-  const fovY = data.fovY;
+  const fovX = data.fovX * xyScaleFactor;
+  const fovY = data.fovY * xyScaleFactor;
   
   const overlapFactor = 1 - (overlapPercent / 100);
   const stepX = fovX * overlapFactor;

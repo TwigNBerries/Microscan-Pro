@@ -58,7 +58,8 @@ const App: React.FC = () => {
     stabilizeXYMs: 500,
     settleZMs: 250,
     gcodeFlavor: 'marlin',
-    depthDownscale: true
+    depthDownscale: true,
+    xyScaleFactor: 3.16
   });
 
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([]);
@@ -88,15 +89,20 @@ const App: React.FC = () => {
   const [jogFeedrate, setJogFeedrate] = useState<number>(3000);
 
   const grid: GridDimensions = useMemo(() => calculateGrid(settings), [settings]);
-  const specs = useMemo(() => getInterpolatedData(settings.magnification), [settings.magnification]);
+  const rawSpecs = useMemo(() => getInterpolatedData(settings.magnification), [settings.magnification]);
+  const specs = useMemo(() => ({
+    ...rawSpecs,
+    fovX: rawSpecs.fovX * settings.xyScaleFactor,
+    fovY: rawSpecs.fovY * settings.xyScaleFactor
+  }), [rawSpecs, settings.xyScaleFactor]);
   
   const [videoDimensions, setVideoDimensions] = useState({ width: 1920, height: 1080 });
 
   const pixelResolution = useMemo(() => {
     const res = (specs.fovX / videoDimensions.width) * 1000; // µm per pixel
-    console.log(`DEPTH: Calculated pixel resolution: ${res.toFixed(4)} um/px (FOV: ${specs.fovX}mm, Width: ${videoDimensions.width}px)`);
+    console.log(`DEPTH: Calculated pixel resolution: ${res.toFixed(4)} um/px (FOV: ${specs.fovX}mm, Width: ${videoDimensions.width}px, Scale: ${settings.xyScaleFactor})`);
     return res;
-  }, [specs.fovX, videoDimensions.width]);
+  }, [specs.fovX, videoDimensions.width, settings.xyScaleFactor]);
 
   const scaleBarWidthPx = useMemo(() => {
     const targetMm = specs.fovX > 10 ? 5 : (specs.fovX > 2 ? 1 : 0.5);
@@ -561,6 +567,7 @@ const App: React.FC = () => {
                    <div className="grid grid-cols-2 gap-4">
                     <NumberInput label="Stack Count" min={1} value={settings.zStackCount} onChange={v => setSettings(s => ({...s, zStackCount: v}))} suffix="img" />
                     <NumberInput label="Z Step Size" min={10} value={settings.zStepMicrons} onChange={v => setSettings(s => ({...s, zStepMicrons: v}))} suffix="μm" />
+                    <NumberInput label="XY Scale Factor" min={0.1} step={0.01} value={settings.xyScaleFactor} onChange={v => setSettings(s => ({...s, xyScaleFactor: v}))} suffix="x" />
                   </div>
                   
                   <div className="mt-4 flex items-center justify-between p-4 bg-slate-800/30 rounded-xl border border-white/5">
