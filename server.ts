@@ -35,12 +35,12 @@ async function startServer() {
     console.log("Verifying Python libraries...");
     try {
       // Just check if they can be imported
-      execSync("python3 -c \"import numpy, cv2, pywt, scipy, matplotlib\"", { stdio: 'pipe' });
+      execSync("python3 -c \"import numpy, cv2, pywt, scipy, matplotlib, PIL\"", { stdio: 'pipe' });
       console.log("Python libraries verified.");
     } catch (libErr) {
       console.log("Some Python libraries missing. Attempting installation...");
       try {
-        execSync("python3 -m pip install numpy opencv-python PyWavelets scipy matplotlib", { stdio: 'inherit' });
+        execSync("python3 -m pip install numpy opencv-python PyWavelets scipy matplotlib Pillow", { stdio: 'inherit' });
         console.log("Python libraries installed successfully.");
       } catch (installErr) {
         console.warn("Warning: Could not install Python libraries. Depth estimation may fail.", installErr);
@@ -121,25 +121,43 @@ async function startServer() {
         }
 
         try {
-          // Find the JSON output in stdout (it might have other print statements)
-          const jsonMatch = stdout.match(/\{.*\}/s);
-          if (!jsonMatch) {
-            throw new Error("No JSON output found from Python script.");
-          }
-          
-          const result = JSON.parse(jsonMatch[0]);
-          
-          // Read the heatmap image
-          const heatmapPath = path.join(scanPath, 'heatmap.jpg');
-          if (fs.existsSync(heatmapPath)) {
-            const heatmapBase64 = fs.readFileSync(heatmapPath).toString('base64');
-            result.dataUrl = `data:image/jpeg;base64,${heatmapBase64}`;
-          } else {
-            console.warn(`[DEPTH] Heatmap image not found at ${heatmapPath}`);
-          }
+          // Find the JSON output in stdout using markers
+          const startMarker = "---JSON_START---";
+          const endMarker = "---JSON_END---";
+          const startIndex = stdout.indexOf(startMarker);
+          const endIndex = stdout.indexOf(endMarker);
 
-          console.log(`[DEPTH] Computation complete for ${config.method}. MinZ: ${result.minZ?.toFixed(3)}, MaxZ: ${result.maxZ?.toFixed(3)}`);
-          res.json(result);
+          if (startIndex === -1 || endIndex === -1) {
+            // Fallback to old regex if markers not found (shouldn't happen with new script)
+            const jsonMatch = stdout.match(/\{.*\}/s);
+            if (!jsonMatch) {
+              throw new Error("No JSON output found from Python script.");
+            }
+            const result = JSON.parse(jsonMatch[0]);
+            handleResult(result);
+          } else {
+            const jsonStr = stdout.substring(startIndex + startMarker.length, endIndex).trim();
+            const result = JSON.parse(jsonStr);
+            handleResult(result);
+          }
+          
+          function handleResult(result: any) {
+            if (result.error) {
+              return res.status(500).json({ error: result.error });
+            }
+
+            // Read the heatmap image
+            const heatmapPath = path.join(scanPath, 'heatmap.jpg');
+            if (fs.existsSync(heatmapPath)) {
+              const heatmapBase64 = fs.readFileSync(heatmapPath).toString('base64');
+              result.dataUrl = `data:image/jpeg;base64,${heatmapBase64}`;
+            } else {
+              console.warn(`[DEPTH] Heatmap image not found at ${heatmapPath}`);
+            }
+
+            console.log(`[DEPTH] Computation complete for ${config.method}. MinZ: ${result.minZ?.toFixed(3)}, MaxZ: ${result.maxZ?.toFixed(3)}`);
+            res.json(result);
+          }
         } catch (parseErr) {
           console.error("Failed to parse Python output:", parseErr, stdout);
           res.status(500).json({ error: "Failed to parse depth estimation results." });

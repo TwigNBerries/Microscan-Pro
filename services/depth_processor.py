@@ -84,31 +84,26 @@ def fm_wavelet(im):
 
 
 def fm_laplacian(im):
-    # Modified Laplacian (ML) with a larger kernel for robustness
-    # We use a 5x5 area to be less sensitive to pixel noise
+    # Modified Laplacian (ML) - Standard implementation
+    # We use a 3x3 Laplacian which is more standard and robust
     im_blur = cv2.GaussianBlur(im, (3, 3), 0)
-    kernel_x = np.array([
-        [0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0],
-        [-1, 0, 2, 0, -1],
-        [0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0]
-    ], dtype=np.float32)
-    kernel_y = kernel_x.T
-    
-    lx = cv2.filter2D(im_blur, cv2.CV_32F, kernel_x)
-    ly = cv2.filter2D(im_blur, cv2.CV_32F, kernel_y)
-    
-    return np.abs(lx) + np.abs(ly)
+    lap = cv2.Laplacian(im_blur, cv2.CV_32F, ksize=3)
+    res = np.abs(lap)
+    # Smooth the focus map to reduce noise sensitivity
+    # For 4K, a 7x7 blur is better
+    return cv2.GaussianBlur(res, (7, 7), 0)
 
 
 def fm_tenengrad(im):
+    # Tenengrad focus measure using Sobel operators
     # Apply a larger blur for 4K/high-res robustness
     im_blur = cv2.GaussianBlur(im, (5, 5), 0)
-    gx = cv2.Sobel(im_blur, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(im_blur, cv2.CV_32F, 0, 1, ksize=3)
+    gx = cv2.Sobel(im_blur, cv2.CV_32F, 1, 0, ksize=5) # Larger ksize for robustness
+    gy = cv2.Sobel(im_blur, cv2.CV_32F, 0, 1, ksize=5)
     # Tenengrad magnitude
-    return np.sqrt(gx**2 + gy**2)
+    res = np.sqrt(gx**2 + gy**2)
+    # Smooth the focus map to reduce noise sensitivity
+    return cv2.GaussianBlur(res, (7, 7), 0)
 
 
 def make_circular_kernel(radius):
@@ -313,11 +308,18 @@ def compute_topomap_with_datum(
         fm_stack = gaussian_filter(fm_stack, sigma=(z_smooth, 0.0, 0.0))
 
     fmax = np.max(fm_stack, axis=0)
+    k_max = np.argmax(fm_stack, axis=0)
+    
+    log(f"Focus Map Stats: Min={np.min(fmax):.4f}, Max={np.max(fmax):.4f}, Mean={np.mean(fmax):.4f}, Median={np.median(fmax):.4f}")
+
     # Relaxed eligibility: use a lower percentile for the threshold
-    global_thresh_base = float(np.percentile(fmax, 10)) # 10th percentile
+    global_thresh_base = float(np.percentile(fmax, 2)) # Even lower percentile
     global_median = float(np.median(fmax))
-    eligibility_thresh = max(global_median * float(min_global_fraction), global_thresh_base, 1e-9)
+    eligibility_thresh = max(global_median * float(min_global_fraction), global_thresh_base, 1e-12)
+    log(f"Eligibility Threshold: {eligibility_thresh:.6f}")
+    
     base_eligible = (fmax >= eligibility_thresh)
+    log(f"Base Eligible Pixels: {np.sum(base_eligible)} / {h*w}")
 
     ker = make_circular_kernel(int(round(support_radius_px)))
     support = cv2.filter2D(
@@ -327,7 +329,8 @@ def compute_topomap_with_datum(
         borderType=cv2.BORDER_REPLICATE
     )
     # Relaxed support requirement
-    eligible = base_eligible & (support >= float(support_fraction * 0.5))
+    eligible = base_eligible & (support >= float(support_fraction * 0.2)) # Even more relaxed
+    log(f"Final Eligible Pixels: {np.sum(eligible)} / {h*w}")
 
     mu_map, sigma_map, fpeak_map = gaussian_fit_per_pixel_fast(
         fm_stack,
@@ -348,142 +351,151 @@ def compute_topomap_with_datum(
         else:
             height[valid] = mu_map[valid] - d_min
 
-    return height, mu_map, fpeak_map
+    return height, mu_map, fpeak_map, fmax, k_max
 
 
 # ---------------------- CLI Interface ---------------------- #
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python3 depth_processor.py <input_json_path>")
-        sys.exit(1)
-
-    json_path = sys.argv[1]
-    with open(json_path, 'r') as f:
-        config = json.load(f)
-
-    image_folder = config['image_folder']
-    z_step_mm = config.get('z_step_mm', 0.1)
-    method = config.get('method', 'laplacian')
-    downscale = config.get('downscale', 1.0)
-    depths = config.get('depths', None)
-    pixel_resolution_um = config.get('pixel_resolution_um', 1.0)
-    
-    # Advanced params
-    preprocess = config.get('preprocess', 'clahe')
-    first_hit_fraction = config.get('first_hit_fraction', 0.8)
-    support_radius_px = config.get('support_radius_px', 1)
-    support_fraction = config.get('support_fraction', 0.8)
-    min_global_fraction = config.get('min_global_fraction', 0.2)
-    high_is_earliest = config.get('high_is_earliest', False)
-
-    image_files = list_images(image_folder)
-    log(f"Found {len(image_files)} images in {image_folder}")
-    
-    log(f"Computing topography using {method}...")
-    height, mu, fpeak = compute_topomap_with_datum(
-        image_files,
-        z_step_mm=z_step_mm,
-        method=method,
-        downscale=downscale,
-        depths=depths,
-        preprocess=preprocess,
-        first_hit_fraction=first_hit_fraction,
-        support_radius_px=support_radius_px,
-        support_fraction=support_fraction,
-        min_global_fraction=min_global_fraction,
-        high_is_earliest=high_is_earliest
-    )
-    log("Topography computation complete.")
-
-    # Convert height map to heatmap image with colorbar and scale bar
-    valid = np.isfinite(height)
-    if not np.any(valid):
-        log("WARNING: No valid depth points found. Falling back to raw max-focus indices.")
-        # Fallback: just use the raw max indices if Gaussian fit failed everywhere
-        k_max = np.argmax(fm_stack, axis=0)
-        height = k_max.astype(np.float32) * float(z_step_mm)
-        valid = np.ones_like(height, dtype=bool)
-
-    vmin = float(np.nanmin(height))
-    vmax = float(np.nanmax(height))
-    
-    if vmin == vmax:
-        vmax = vmin + 0.001
-    
-    log(f"Generating heatmap plot (vmin={vmin:.3f}, vmax={vmax:.3f})...")
-    # Create plot
     try:
-        plt.figure(figsize=(12, 10))
+        if len(sys.argv) < 2:
+            print(json.dumps({"error": "Usage: python3 depth_processor.py <input_json_path>"}))
+            sys.exit(1)
+
+        json_path = sys.argv[1]
+        with open(json_path, 'r') as f:
+            config = json.load(f)
+
+        image_folder = config['image_folder']
+        z_step_mm = config.get('z_step_mm', 0.1)
+        method = config.get('method', 'laplacian')
+        downscale = config.get('downscale', 1.0)
+        depths = config.get('depths', None)
+        pixel_resolution_um = config.get('pixel_resolution_um', 1.0)
         
-        # Use viridis (standard) so high is warm/yellow and low is cool/purple
-        plt.imshow(height, cmap='viridis', vmin=vmin, vmax=vmax)
+        # Advanced params
+        preprocess = config.get('preprocess', 'clahe')
+        first_hit_fraction = config.get('first_hit_fraction', 0.8)
+        support_radius_px = config.get('support_radius_px', 1)
+        support_fraction = config.get('support_fraction', 0.8)
+        min_global_fraction = config.get('min_global_fraction', 0.2)
+        high_is_earliest = config.get('high_is_earliest', False)
+
+        image_files = list_images(image_folder)
+        log(f"Found {len(image_files)} images in {image_folder}")
         
-        # Add colorbar
-        cbar = plt.colorbar()
-        cbar.set_label('Height (mm)', rotation=270, labelpad=15, fontsize=12, fontweight='bold')
+        log(f"Computing topography using {method}...")
+        height, mu, fpeak, fmax, k_max = compute_topomap_with_datum(
+            image_files,
+            z_step_mm=z_step_mm,
+            method=method,
+            downscale=downscale,
+            depths=depths,
+            preprocess=preprocess,
+            first_hit_fraction=first_hit_fraction,
+            support_radius_px=support_radius_px,
+            support_fraction=support_fraction,
+            min_global_fraction=min_global_fraction,
+            high_is_earliest=high_is_earliest
+        )
+        log("Topography computation complete.")
+
+        # Convert height map to heatmap image with colorbar and scale bar
+        valid = np.isfinite(height)
+        if not np.any(valid):
+            log("WARNING: No valid depth points found. Falling back to raw max-focus indices.")
+            # Fallback: just use the raw max indices if Gaussian fit failed everywhere
+            height = k_max.astype(np.float32) * float(z_step_mm)
+            valid = np.ones_like(height, dtype=bool)
+
+        vmin = float(np.nanmin(height))
+        vmax = float(np.nanmax(height))
         
-        # Add X/Y axis labels in mm
-        h_img, w_img = height.shape
-        # pixel_resolution_um is microns per pixel
-        width_mm = (w_img * pixel_resolution_um) / 1000.0
-        height_mm = (h_img * pixel_resolution_um) / 1000.0
+        if vmin == vmax:
+            vmax = vmin + 0.001
         
-        plt.xlabel('Width (mm)', fontsize=12, fontweight='bold')
-        plt.ylabel('Height (mm)', fontsize=12, fontweight='bold')
-        
-        # Set ticks to mm
-        num_ticks = 5
-        x_ticks = np.linspace(0, w_img - 1, num_ticks)
-        x_labels = [f"{x * pixel_resolution_um / 1000.0:.2f}" for x in x_ticks]
-        plt.xticks(x_ticks, x_labels)
-        
-        y_ticks = np.linspace(0, h_img - 1, num_ticks)
-        y_labels = [f"{y * pixel_resolution_um / 1000.0:.2f}" for y in y_ticks]
-        plt.yticks(y_ticks, y_labels)
-        
-        # Add scale bar
-        # Let's add a 1mm scale bar
-        scale_bar_mm = 1.0
-        if width_mm < 2.0: scale_bar_mm = 0.5
-        if width_mm < 0.5: scale_bar_mm = 0.1
-        
-        scale_bar_px = (scale_bar_mm * 1000) / pixel_resolution_um
-        
-        # Draw scale bar in bottom right
-        bar_x = w_img - scale_bar_px - 40
-        bar_y = h_img - 40
-        if scale_bar_px < w_img:
-            plt.plot([bar_x, bar_x + scale_bar_px], [bar_y, bar_y], color='white', linewidth=4)
-            plt.text(bar_x + scale_bar_px/2, bar_y - 10, f'{scale_bar_mm} mm', color='white', ha='center', fontsize=14, fontweight='bold')
-        
-        # Save result image
-        output_image_path = os.path.join(image_folder, 'heatmap.jpg')
-        plt.tight_layout()
-        plt.savefig(output_image_path, dpi=100, bbox_inches='tight', pad_inches=0.5)
-        plt.close('all')
-        log("Heatmap plot saved.")
-    except Exception as e:
-        log(f"ERROR during plotting: {str(e)}")
-        # Create a blank image if plotting fails to avoid breaking the pipeline
+        log(f"Generating heatmap plot (vmin={vmin:.3f}, vmax={vmax:.3f})...")
+        # Create plot
         try:
-            from PIL import Image
-            blank = Image.new('RGB', (800, 600), color=(73, 109, 137))
-            blank.save(os.path.join(image_folder, "heatmap.jpg"))
-        except:
-            pass
-    
-    # Prepare result JSON
-    result = {
-        'width': height.shape[1],
-        'height': height.shape[0],
-        'depthValues': height.flatten().tolist(),
-        'minZ': vmin,
-        'maxZ': vmax
-    }
-    
-    print(json.dumps(result))
-    sys.stdout.flush()
+            plt.figure(figsize=(12, 10))
+            
+            # Use viridis (standard) so high is warm/yellow and low is cool/purple
+            plt.imshow(height, cmap='viridis', vmin=vmin, vmax=vmax)
+            
+            # Add colorbar
+            cbar = plt.colorbar()
+            cbar.set_label('Height (mm)', rotation=270, labelpad=15, fontsize=12, fontweight='bold')
+            
+            # Add X/Y axis labels in mm
+            h_img, w_img = height.shape
+            # pixel_resolution_um is microns per pixel
+            width_mm = (w_img * pixel_resolution_um) / 1000.0
+            height_mm = (h_img * pixel_resolution_um) / 1000.0
+            
+            plt.xlabel('Width (mm)', fontsize=12, fontweight='bold')
+            plt.ylabel('Height (mm)', fontsize=12, fontweight='bold')
+            
+            # Set ticks to mm
+            num_ticks = 5
+            x_ticks = np.linspace(0, w_img - 1, num_ticks)
+            x_labels = [f"{x * pixel_resolution_um / 1000.0:.2f}" for x in x_ticks]
+            plt.xticks(x_ticks, x_labels)
+            
+            y_ticks = np.linspace(0, h_img - 1, num_ticks)
+            y_labels = [f"{y * pixel_resolution_um / 1000.0:.2f}" for y in y_ticks]
+            plt.yticks(y_ticks, y_labels)
+            
+            # Add scale bar
+            # Let's add a 1mm scale bar
+            scale_bar_mm = 1.0
+            if width_mm < 2.0: scale_bar_mm = 0.5
+            if width_mm < 0.5: scale_bar_mm = 0.1
+            
+            scale_bar_px = (scale_bar_mm * 1000) / pixel_resolution_um
+            
+            # Draw scale bar in bottom right
+            bar_x = w_img - scale_bar_px - 40
+            bar_y = h_img - 40
+            if scale_bar_px < w_img:
+                plt.plot([bar_x, bar_x + scale_bar_px], [bar_y, bar_y], color='white', linewidth=4)
+                plt.text(bar_x + scale_bar_px/2, bar_y - 10, f'{scale_bar_mm} mm', color='white', ha='center', fontsize=14, fontweight='bold')
+            
+            # Save result image
+            output_image_path = os.path.join(image_folder, 'heatmap.jpg')
+            plt.tight_layout()
+            plt.savefig(output_image_path, dpi=100, bbox_inches='tight', pad_inches=0.5)
+            plt.close('all')
+            log("Heatmap plot saved.")
+        except Exception as e:
+            log(f"ERROR during plotting: {str(e)}")
+            # Create a blank image if plotting fails to avoid breaking the pipeline
+            try:
+                from PIL import Image
+                blank = Image.new('RGB', (800, 600), color=(73, 109, 137))
+                blank.save(os.path.join(image_folder, "heatmap.jpg"))
+            except:
+                pass
+        
+        # Prepare result JSON
+        result = {
+            'width': height.shape[1],
+            'height': height.shape[0],
+            'depthValues': height.flatten().tolist(),
+            'minZ': vmin,
+            'maxZ': vmax
+        }
+        
+        # Use a clear marker for the JSON output
+        print("---JSON_START---")
+        print(json.dumps(result))
+        print("---JSON_END---")
+        sys.stdout.flush()
+    except Exception as e:
+        log(f"FATAL ERROR: {str(e)}")
+        import traceback
+        log(traceback.format_exc())
+        print(json.dumps({"error": str(e)}))
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
