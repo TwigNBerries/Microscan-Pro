@@ -58,12 +58,8 @@ const App: React.FC = () => {
     stabilizeXYMs: 500,
     settleZMs: 250,
     gcodeFlavor: 'marlin',
-    depthDownscale: true,
-    xyCalibration: 1.0
+    depthDownscale: true
   });
-
-  const [jogStepSize, setJogStepSize] = useState<number>(10);
-  const [jogFeedrate, setJogFeedrate] = useState<number>(3000);
 
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([]);
   const [stackedResults, setStackedResults] = useState<Record<string, StackResult>>({});
@@ -86,6 +82,10 @@ const App: React.FC = () => {
   const [consoleLogs, setConsoleLogs] = useState<string[]>([]);
   const [remainingItems, setRemainingItems] = useState(0);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+
+  // Jog persistence
+  const [jogStep, setJogStep] = useState<number>(10);
+  const [jogFeedrate, setJogFeedrate] = useState<number>(3000);
 
   const grid: GridDimensions = useMemo(() => calculateGrid(settings), [settings]);
   const specs = useMemo(() => getInterpolatedData(settings.magnification), [settings.magnification]);
@@ -131,6 +131,15 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const handleClearDepth = useCallback((label: string) => {
+    setDepthResults(prev => {
+      const next = { ...prev };
+      delete next[label];
+      return next;
+    });
+    addLog(`DEPTH: Cleared analysis for ${label}. Ready for recalculation.`);
+  }, []);
+
   useEffect(() => {
     (Object.entries(groupedCapturedImages) as [string, CapturedImage[]][]).forEach(([label, images]) => {
       if (images.length === settings.zStackCount) {
@@ -172,8 +181,7 @@ const App: React.FC = () => {
         method, 
         settings.depthDownscale, 
         settings.zStepMicrons,
-        pixelResolution,
-        settings.xyCalibration
+        pixelResolution
       );
       setDepthResults(prev => ({
         ...prev,
@@ -567,32 +575,6 @@ const App: React.FC = () => {
                       <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${settings.depthDownscale ? 'left-6' : 'left-1'}`} />
                     </button>
                   </div>
-
-                  <div className="mt-4 space-y-2">
-                    <div className="flex justify-between items-center px-1">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">XY Calibration Factor</label>
-                      <span className="text-[10px] font-mono text-cyan-400 font-bold">{settings.xyCalibration.toFixed(2)}x</span>
-                    </div>
-                    <div className="flex gap-4 items-center">
-                      <input 
-                        type="range" 
-                        min="0.5" 
-                        max="5.0" 
-                        step="0.01" 
-                        value={settings.xyCalibration} 
-                        onChange={(e) => setSettings(s => ({...s, xyCalibration: parseFloat(e.target.value)}))} 
-                        className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500" 
-                      />
-                      <input 
-                        type="number" 
-                        value={settings.xyCalibration} 
-                        step="0.01"
-                        onChange={(e) => setSettings(s => ({...s, xyCalibration: parseFloat(e.target.value) || 1.0}))}
-                        className="w-16 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-[10px] font-bold text-white text-center"
-                      />
-                    </div>
-                    <p className="text-[8px] text-slate-600 italic px-1">Compensates for sensor crop/downscale distortion. User reported 3.16x for 1080p.</p>
-                  </div>
                 </div>
 
                 <div>
@@ -638,14 +620,23 @@ const App: React.FC = () => {
             onConnect={() => {}} 
             onDisconnect={() => setIsConnected(false)} 
             queueSize={remainingItems}
-            stepSize={jogStepSize}
-            setStepSize={setJogStepSize}
+            stepSize={jogStep}
+            setStepSize={setJogStep}
             feedrate={jogFeedrate}
             setFeedrate={setJogFeedrate}
           />
         )}
         {activeTab === 'stacking' && <StackingLab results={stackedResults} capturedImages={groupedCapturedImages} />}
-        {activeTab === 'depth' && <DepthLab results={depthResults} capturedImages={groupedCapturedImages} onTriggerDepth={handleTriggerDepth} grid={grid} settings={settings} />}
+        {activeTab === 'depth' && (
+          <DepthLab 
+            results={depthResults} 
+            capturedImages={groupedCapturedImages} 
+            onTriggerDepth={handleTriggerDepth} 
+            onClearDepth={handleClearDepth}
+            grid={grid} 
+            settings={settings} 
+          />
+        )}
         {activeTab === 'stitching' && <StitchingView images={capturedImages} stackedResults={stackedResults} grid={grid} settings={settings} />}
         {activeTab === 'gallery' && (
           <div className="space-y-8 animate-in fade-in duration-500">

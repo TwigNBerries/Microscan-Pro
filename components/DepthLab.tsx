@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { DepthResult, CapturedImage, DepthMethod, GridDimensions, ScanSettings } from '../types';
-import { Activity, RefreshCw, Map, CheckCircle, Clock, FolderDown, Download, Thermometer, FileText, Play, ArrowLeft, Combine } from 'lucide-react';
+import { Activity, RefreshCw, Map, CheckCircle, Clock, FolderDown, Download, Thermometer, FileText, Play, ArrowLeft, Combine, Trash2 } from 'lucide-react';
 import JSZip from 'jszip';
 import StitchingView from './StitchingView';
 
@@ -9,11 +9,12 @@ interface Props {
   results: Record<string, DepthResult>;
   capturedImages: Record<string, CapturedImage[]>;
   onTriggerDepth: (label: string, images: CapturedImage[], method: DepthMethod) => Promise<void>;
+  onClearDepth: (label: string) => void;
   grid: GridDimensions;
   settings: ScanSettings;
 }
 
-const DepthLab: React.FC<Props> = ({ results, capturedImages, onTriggerDepth, grid, settings }) => {
+const DepthLab: React.FC<Props> = ({ results, capturedImages, onTriggerDepth, onClearDepth, grid, settings }) => {
   const sortedLabels = Object.keys(capturedImages).sort();
   const [selectedMethod, setSelectedMethod] = useState<DepthMethod>('laplacian');
 
@@ -202,6 +203,13 @@ const DepthLab: React.FC<Props> = ({ results, capturedImages, onTriggerDepth, gr
                    
                    {result?.dataUrl && (
                      <div className="absolute bottom-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={() => onClearDepth(label)}
+                          className="p-3 bg-rose-500/20 text-rose-500 rounded-xl hover:bg-rose-500 hover:text-white transition-all shadow-xl border border-rose-500/20"
+                          title="Clear Result"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                         <button 
                           onClick={() => handleDownloadCSV(label)}
                           className="p-3 bg-slate-800 text-cyan-400 rounded-xl hover:bg-slate-700 transition-all shadow-xl border border-white/10"
