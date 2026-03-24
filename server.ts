@@ -15,8 +15,8 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(cors());
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+  app.use(express.json({ limit: '200mb' }));
+  app.use(express.urlencoded({ limit: '200mb', extended: true }));
 
   // Ensure temp directory exists
   const tempDir = path.join(process.cwd(), 'temp_scans');
@@ -87,11 +87,13 @@ async function startServer() {
         pixel_resolution_um: (settings.pixelResolutionUm && settings.pixelResolutionUm > 0 ? settings.pixelResolutionUm : 1.0) * (settings.downscale || 1.0) * (settings.xyCalibration || 1.0),
         preprocess: 'clahe',
         first_hit_fraction: 0.8,
-        support_radius_px: 1,
-        support_fraction: 0.8,
-        min_global_fraction: 0.2,
+        support_radius_px: 2,
+        support_fraction: 0.5,
+        min_global_fraction: 0.1,
         high_is_earliest: false // First image is lowest Z in our G-code
       };
+
+      console.log(`[DEPTH] Starting depth computation for ${images.length} images using ${config.method}. Pixel Res: ${config.pixel_resolution_um.toFixed(3)} um/px`);
 
       const configPath = path.join(scanPath, 'config.json');
       fs.writeFileSync(configPath, JSON.stringify(config));
@@ -132,8 +134,11 @@ async function startServer() {
           if (fs.existsSync(heatmapPath)) {
             const heatmapBase64 = fs.readFileSync(heatmapPath).toString('base64');
             result.dataUrl = `data:image/jpeg;base64,${heatmapBase64}`;
+          } else {
+            console.warn(`[DEPTH] Heatmap image not found at ${heatmapPath}`);
           }
 
+          console.log(`[DEPTH] Computation complete for ${config.method}. MinZ: ${result.minZ?.toFixed(3)}, MaxZ: ${result.maxZ?.toFixed(3)}`);
           res.json(result);
         } catch (parseErr) {
           console.error("Failed to parse Python output:", parseErr, stdout);

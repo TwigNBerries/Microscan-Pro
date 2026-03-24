@@ -84,24 +84,31 @@ def fm_wavelet(im):
 
 
 def fm_laplacian(im):
-    # Modified Laplacian (ML)
-    # L(x,y) = |2I(x,y) - I(x-step, y) - I(x+step, y)| + |2I(x,y) - I(x, y-step) - I(x, y+step)|
-    kernel_x = np.array([[0, 0, 0], [-1, 2, -1], [0, 0, 0]], dtype=np.float32)
-    kernel_y = np.array([[0, -1, 0], [0, 2, 0], [0, -1, 0]], dtype=np.float32)
+    # Modified Laplacian (ML) with a larger kernel for robustness
+    # We use a 5x5 area to be less sensitive to pixel noise
+    im_blur = cv2.GaussianBlur(im, (3, 3), 0)
+    kernel_x = np.array([
+        [0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0],
+        [-1, 0, 2, 0, -1],
+        [0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0]
+    ], dtype=np.float32)
+    kernel_y = kernel_x.T
     
-    lx = cv2.filter2D(im, cv2.CV_32F, kernel_x)
-    ly = cv2.filter2D(im, cv2.CV_32F, kernel_y)
+    lx = cv2.filter2D(im_blur, cv2.CV_32F, kernel_x)
+    ly = cv2.filter2D(im_blur, cv2.CV_32F, kernel_y)
     
     return np.abs(lx) + np.abs(ly)
 
 
 def fm_tenengrad(im):
-    # Apply a small blur to reduce noise sensitivity
-    im_blur = cv2.GaussianBlur(im, (3, 3), 0)
+    # Apply a larger blur for 4K/high-res robustness
+    im_blur = cv2.GaussianBlur(im, (5, 5), 0)
     gx = cv2.Sobel(im_blur, cv2.CV_32F, 1, 0, ksize=3)
     gy = cv2.Sobel(im_blur, cv2.CV_32F, 0, 1, ksize=3)
-    # Tenengrad is typically the sum of squared gradients
-    return gx**2 + gy**2
+    # Tenengrad magnitude
+    return np.sqrt(gx**2 + gy**2)
 
 
 def make_circular_kernel(radius):
@@ -306,8 +313,10 @@ def compute_topomap_with_datum(
         fm_stack = gaussian_filter(fm_stack, sigma=(z_smooth, 0.0, 0.0))
 
     fmax = np.max(fm_stack, axis=0)
+    # Relaxed eligibility: use a lower percentile for the threshold
+    global_thresh_base = float(np.percentile(fmax, 10)) # 10th percentile
     global_median = float(np.median(fmax))
-    eligibility_thresh = max(global_median * float(min_global_fraction), 1e-6)
+    eligibility_thresh = max(global_median * float(min_global_fraction), global_thresh_base, 1e-9)
     base_eligible = (fmax >= eligibility_thresh)
 
     ker = make_circular_kernel(int(round(support_radius_px)))
@@ -317,7 +326,8 @@ def compute_topomap_with_datum(
         ker,
         borderType=cv2.BORDER_REPLICATE
     )
-    eligible = base_eligible & (support >= float(support_fraction))
+    # Relaxed support requirement
+    eligible = base_eligible & (support >= float(support_fraction * 0.5))
 
     mu_map, sigma_map, fpeak_map = gaussian_fit_per_pixel_fast(
         fm_stack,
@@ -388,8 +398,18 @@ def main():
 
     # Convert height map to heatmap image with colorbar and scale bar
     valid = np.isfinite(height)
-    vmin = float(np.nanmin(height)) if np.any(valid) else 0.0
-    vmax = float(np.nanmax(height)) if np.any(valid) else 1.0
+    if not np.any(valid):
+        log("WARNING: No valid depth points found. Falling back to raw max-focus indices.")
+        # Fallback: just use the raw max indices if Gaussian fit failed everywhere
+        k_max = np.argmax(fm_stack, axis=0)
+        height = k_max.astype(np.float32) * float(z_step_mm)
+        valid = np.ones_like(height, dtype=bool)
+
+    vmin = float(np.nanmin(height))
+    vmax = float(np.nanmax(height))
+    
+    if vmin == vmax:
+        vmax = vmin + 0.001
     
     log(f"Generating heatmap plot (vmin={vmin:.3f}, vmax={vmax:.3f})...")
     # Create plot
@@ -441,10 +461,17 @@ def main():
         output_image_path = os.path.join(image_folder, 'heatmap.jpg')
         plt.tight_layout()
         plt.savefig(output_image_path, dpi=100, bbox_inches='tight', pad_inches=0.5)
-        plt.close()
+        plt.close('all')
         log("Heatmap plot saved.")
     except Exception as e:
         log(f"ERROR during plotting: {str(e)}")
+        # Create a blank image if plotting fails to avoid breaking the pipeline
+        try:
+            from PIL import Image
+            blank = Image.new('RGB', (800, 600), color=(73, 109, 137))
+            blank.save(os.path.join(image_folder, "heatmap.jpg"))
+        except:
+            pass
     
     # Prepare result JSON
     result = {
