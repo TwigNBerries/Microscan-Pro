@@ -135,8 +135,7 @@ export const computeDepthMap = async (
   method: DepthMethod = 'laplacian',
   downscale: boolean = true,
   zStepMicrons: number = 100,
-  pixelResolutionUm: number = 1.0,
-  xyCalibration: number = 1.0
+  pixelResolutionUm: number = 1.0
 ): Promise<DepthMapResult> => {
   if (images.length < 3) throw new Error("Need at least 3 images for Gaussian fit");
 
@@ -156,7 +155,7 @@ export const computeDepthMap = async (
         zStepMicrons,
         downscale: downscale ? 2.0 : 1.0, // 2.0 factor for 4K -> 1080p
         pixelResolutionUm,
-        xyCalibration
+        xyCalibration: 1.0
       }
     }),
   });

@@ -58,8 +58,7 @@ const App: React.FC = () => {
     stabilizeXYMs: 500,
     settleZMs: 250,
     gcodeFlavor: 'marlin',
-    depthDownscale: true,
-    xyCalibration: 1.0
+    depthDownscale: true
   });
 
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([]);
@@ -182,8 +181,7 @@ const App: React.FC = () => {
         method, 
         settings.depthDownscale, 
         settings.zStepMicrons,
-        pixelResolution,
-        settings.xyCalibration
+        pixelResolution
       );
       setDepthResults(prev => ({
         ...prev,
@@ -538,10 +536,6 @@ const App: React.FC = () => {
                     <div className="grid grid-cols-2 gap-4">
                       <NumberInput label="Magnification" value={settings.magnification} onChange={v => setSettings(s => ({...s, magnification: v}))} suffix="x" />
                       <NumberInput label="Tile Overlap" value={settings.overlapPercent} onChange={v => setSettings(s => ({...s, overlapPercent: v}))} suffix="%" />
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4">
-                      <NumberInput label="XY Calibration" value={settings.xyCalibration} onChange={v => setSettings(s => ({...s, xyCalibration: v}))} suffix="scale" step={0.001} />
                     </div>
 
                     <div className="p-4 bg-slate-800/50 rounded-xl flex items-center justify-between border border-white/5">
