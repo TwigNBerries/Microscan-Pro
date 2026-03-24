@@ -59,7 +59,7 @@ const App: React.FC = () => {
     settleZMs: 250,
     gcodeFlavor: 'marlin',
     depthDownscale: true,
-    xyScaleFactor: 3.16
+    xyCalibration: 1.0
   });
 
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([]);
@@ -89,20 +89,15 @@ const App: React.FC = () => {
   const [jogFeedrate, setJogFeedrate] = useState<number>(3000);
 
   const grid: GridDimensions = useMemo(() => calculateGrid(settings), [settings]);
-  const rawSpecs = useMemo(() => getInterpolatedData(settings.magnification), [settings.magnification]);
-  const specs = useMemo(() => ({
-    ...rawSpecs,
-    fovX: rawSpecs.fovX * settings.xyScaleFactor,
-    fovY: rawSpecs.fovY * settings.xyScaleFactor
-  }), [rawSpecs, settings.xyScaleFactor]);
+  const specs = useMemo(() => getInterpolatedData(settings.magnification), [settings.magnification]);
   
   const [videoDimensions, setVideoDimensions] = useState({ width: 1920, height: 1080 });
 
   const pixelResolution = useMemo(() => {
     const res = (specs.fovX / videoDimensions.width) * 1000; // µm per pixel
-    console.log(`DEPTH: Calculated pixel resolution: ${res.toFixed(4)} um/px (FOV: ${specs.fovX}mm, Width: ${videoDimensions.width}px, Scale: ${settings.xyScaleFactor})`);
+    console.log(`DEPTH: Calculated pixel resolution: ${res.toFixed(4)} um/px (FOV: ${specs.fovX}mm, Width: ${videoDimensions.width}px)`);
     return res;
-  }, [specs.fovX, videoDimensions.width, settings.xyScaleFactor]);
+  }, [specs.fovX, videoDimensions.width]);
 
   const scaleBarWidthPx = useMemo(() => {
     const targetMm = specs.fovX > 10 ? 5 : (specs.fovX > 2 ? 1 : 0.5);
@@ -187,7 +182,8 @@ const App: React.FC = () => {
         method, 
         settings.depthDownscale, 
         settings.zStepMicrons,
-        pixelResolution
+        pixelResolution,
+        settings.xyCalibration
       );
       setDepthResults(prev => ({
         ...prev,
@@ -544,6 +540,10 @@ const App: React.FC = () => {
                       <NumberInput label="Tile Overlap" value={settings.overlapPercent} onChange={v => setSettings(s => ({...s, overlapPercent: v}))} suffix="%" />
                     </div>
 
+                    <div className="grid grid-cols-1 gap-4">
+                      <NumberInput label="XY Calibration" value={settings.xyCalibration} onChange={v => setSettings(s => ({...s, xyCalibration: v}))} suffix="scale" step={0.001} />
+                    </div>
+
                     <div className="p-4 bg-slate-800/50 rounded-xl flex items-center justify-between border border-white/5">
                         <div>
                           <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Pixel Resolution</p>
@@ -567,7 +567,6 @@ const App: React.FC = () => {
                    <div className="grid grid-cols-2 gap-4">
                     <NumberInput label="Stack Count" min={1} value={settings.zStackCount} onChange={v => setSettings(s => ({...s, zStackCount: v}))} suffix="img" />
                     <NumberInput label="Z Step Size" min={10} value={settings.zStepMicrons} onChange={v => setSettings(s => ({...s, zStepMicrons: v}))} suffix="μm" />
-                    <NumberInput label="XY Scale Factor" min={0.1} step={0.01} value={settings.xyScaleFactor} onChange={v => setSettings(s => ({...s, xyScaleFactor: v}))} suffix="x" />
                   </div>
                   
                   <div className="mt-4 flex items-center justify-between p-4 bg-slate-800/30 rounded-xl border border-white/5">
