@@ -86,10 +86,12 @@ const App: React.FC = () => {
   const grid: GridDimensions = useMemo(() => calculateGrid(settings), [settings]);
   const specs = useMemo(() => getInterpolatedData(settings.magnification), [settings.magnification]);
   
-  const [videoDimensions, setVideoDimensions] = useState({ width: 3840, height: 2160 });
+  const [videoDimensions, setVideoDimensions] = useState({ width: 1920, height: 1080 });
 
   const pixelResolution = useMemo(() => {
-    return (specs.fovX / videoDimensions.width) * 1000; // µm per pixel
+    const res = (specs.fovX / videoDimensions.width) * 1000; // µm per pixel
+    console.log(`DEPTH: Calculated pixel resolution: ${res.toFixed(4)} um/px (FOV: ${specs.fovX}mm, Width: ${videoDimensions.width}px)`);
+    return res;
   }, [specs.fovX, videoDimensions.width]);
 
   const scaleBarWidthPx = useMemo(() => {
@@ -202,8 +204,10 @@ const App: React.FC = () => {
       
       const track = stream.getVideoTracks()[0];
       const settings = track.getSettings();
+      console.log("CAMERA: Track settings:", settings);
       if (settings.width && settings.height) {
         setVideoDimensions({ width: settings.width, height: settings.height });
+        addLog(`CAMERA: Resolution detected: ${settings.width}x${settings.height}`);
       }
 
       setCameraStream(prev => {
@@ -246,6 +250,13 @@ const App: React.FC = () => {
         const video = videoRef.current;
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
+        
+        // Ensure videoDimensions is correct if it wasn't set by track settings
+        if (video.videoWidth !== videoDimensions.width) {
+          console.log(`CAMERA: Updating dimensions from video element: ${video.videoWidth}x${video.videoHeight}`);
+          setVideoDimensions({ width: video.videoWidth, height: video.videoHeight });
+        }
+
         const ctx = canvas.getContext('2d');
         if (ctx) {
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);

@@ -68,6 +68,7 @@ async function startServer() {
     fs.mkdirSync(scanPath);
 
     try {
+      console.log(`DEPTH_API: Received request. Method: ${settings.method}, PixelRes: ${settings.pixelResolutionUm}, Downscale: ${settings.downscale}`);
       // Save images to temp folder
       const imagePaths: string[] = [];
       images.forEach((img: any, idx: number) => {
@@ -83,7 +84,7 @@ async function startServer() {
         z_step_mm: (settings.zStepMicrons || 100) / 1000,
         method: settings.method || 'laplacian',
         downscale: settings.downscale || 1.0,
-        pixel_resolution_um: (settings.pixelResolutionUm || 1.0) * (settings.downscale || 1.0),
+        pixel_resolution_um: (settings.pixelResolutionUm && settings.pixelResolutionUm > 0 ? settings.pixelResolutionUm : 1.0) * (settings.downscale || 1.0),
         preprocess: 'clahe',
         first_hit_fraction: 0.8,
         support_radius_px: 1,

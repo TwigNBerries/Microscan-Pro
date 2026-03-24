@@ -96,9 +96,12 @@ def fm_laplacian(im):
 
 
 def fm_tenengrad(im):
-    gx = cv2.Sobel(im, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(im, cv2.CV_32F, 0, 1, ksize=3)
-    return np.sqrt(gx * gx + gy * gy)
+    # Apply a small blur to reduce noise sensitivity
+    im_blur = cv2.GaussianBlur(im, (3, 3), 0)
+    gx = cv2.Sobel(im_blur, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(im_blur, cv2.CV_32F, 0, 1, ksize=3)
+    # Tenengrad is typically the sum of squared gradients
+    return gx**2 + gy**2
 
 
 def make_circular_kernel(radius):
