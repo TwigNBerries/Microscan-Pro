@@ -419,8 +419,8 @@ def main():
         try:
             plt.figure(figsize=(12, 10))
             
-            # Use viridis (standard) so high is warm/yellow and low is cool/purple
-            plt.imshow(height, cmap='viridis', vmin=vmin, vmax=vmax)
+            # Use turbo for high contrast and many colors to see elevation differences
+            plt.imshow(height, cmap='turbo', vmin=vmin, vmax=vmax)
             
             # Add colorbar
             cbar = plt.colorbar()

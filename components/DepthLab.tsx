@@ -236,13 +236,13 @@ const DepthLab: React.FC<Props> = ({ results, capturedImages, onTriggerDepth, on
                 {result?.dataUrl && (
                   <div className="flex justify-between items-center px-2">
                     <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-indigo-900" />
+                        <div className="w-3 h-3 rounded-full bg-blue-900" />
                         <span className="text-[8px] font-bold text-slate-500 uppercase">Deep</span>
                     </div>
-                    <div className="flex-1 h-1 mx-4 bg-gradient-to-r from-indigo-900 via-emerald-500 to-yellow-400 rounded-full" />
+                    <div className="flex-1 h-1 mx-4 bg-gradient-to-r from-blue-900 via-cyan-500 via-emerald-500 via-yellow-400 to-rose-600 rounded-full" />
                     <div className="flex items-center gap-2">
                         <span className="text-[8px] font-bold text-slate-500 uppercase">Shallow</span>
-                        <div className="w-3 h-3 rounded-full bg-yellow-400" />
+                        <div className="w-3 h-3 rounded-full bg-rose-600" />
                     </div>
                   </div>
                 )}

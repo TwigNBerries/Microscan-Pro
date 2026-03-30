@@ -58,7 +58,8 @@ const App: React.FC = () => {
     stabilizeXYMs: 500,
     settleZMs: 250,
     gcodeFlavor: 'marlin',
-    depthDownscale: true
+    depthDownscale: true,
+    xyScaleFactor: 1.0
   });
 
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([]);
