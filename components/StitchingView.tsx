@@ -62,7 +62,7 @@ const StitchingView: React.FC<Props> = ({ images, stackedResults, grid, settings
   };
 
   const blendHorizontal = (left: ImageData, right: ImageData, overlapPercent: number): ImageData => {
-    const overlapWidth = Math.floor(left.width * (overlapPercent / 100));
+    const overlapWidth = Math.round(right.width * (overlapPercent / 100));
     const outWidth = left.width + right.width - overlapWidth;
     const outHeight = Math.max(left.height, right.height);
     const result = new ImageData(outWidth, outHeight);
@@ -100,7 +100,7 @@ const StitchingView: React.FC<Props> = ({ images, stackedResults, grid, settings
   };
 
   const blendVertical = (top: ImageData, bottom: ImageData, overlapPercent: number): ImageData => {
-    const overlapHeight = Math.floor(top.height * (overlapPercent / 100));
+    const overlapHeight = Math.round(bottom.height * (overlapPercent / 100));
     const outWidth = Math.max(top.width, bottom.width);
     const outHeight = top.height + bottom.height - overlapHeight;
     const result = new ImageData(outWidth, outHeight);
