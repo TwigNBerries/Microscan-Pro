@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   Ruler, 
   ArrowUp, 
@@ -71,6 +71,29 @@ const MagnificationVerifier: React.FC<Props> = ({
     setZ1(null);
     setZ2(null);
   };
+
+  const jog = useCallback(async (axis: 'X' | 'Y' | 'Z', distance: number) => {
+    if (!isConnected || !isPrinterReady) return;
+    await onJog(axis, distance, 3000); // Using standard feedrate for verification
+  }, [isConnected, isPrinterReady, onJog]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isConnected || document.activeElement?.tagName === 'INPUT') return;
+
+      switch (e.key) {
+        case 'ArrowUp': jog('Y', stepSize); break; 
+        case 'ArrowDown': jog('Y', -stepSize); break;
+        case 'ArrowLeft': jog('X', -stepSize); break;
+        case 'ArrowRight': jog('X', stepSize); break;
+        case 'PageUp': jog('Z', stepSize); break;
+        case 'PageDown': jog('Z', -stepSize); break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isConnected, jog, stepSize]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -297,7 +320,8 @@ const MagnificationVerifier: React.FC<Props> = ({
         <div className="flex-1">
           <h4 className="text-xs font-black text-white uppercase tracking-widest mb-1">Calibration Tip</h4>
           <p className="text-[10px] text-slate-500 leading-relaxed">
-            Ensure you are focused at both the lowest and highest points of your sample to get an accurate height measurement.
+            Ensure you are focused at both the lowest and highest points of your sample to get an accurate height measurement. 
+            <span className="block mt-1 text-slate-400">Use <span className="text-cyan-400">Arrow Keys</span> for XY and <span className="text-cyan-400">PageUp/Down</span> for Z movement.</span>
           </p>
         </div>
       </div>

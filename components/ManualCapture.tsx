@@ -134,10 +134,24 @@ const ManualCapture: React.FC<Props> = ({
               <div className="space-y-6">
                 <div className="space-y-3">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Step Size (mm)</label>
-                  <div className="grid grid-cols-4 gap-2 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+                  <div className="grid grid-cols-4 gap-2 bg-slate-950 p-1.5 rounded-2xl border border-slate-800 mb-2">
                     {[0.1, 1, 10, 50].map(s => (
                       <button key={s} onClick={() => setStepSize(s)} className={`py-2 text-[10px] font-black rounded-lg transition-all ${stepSize === s ? 'bg-cyan-500 text-slate-900 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>{s}</button>
                     ))}
+                  </div>
+                  <div className="relative group">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-cyan-400 transition-colors">
+                      <Target className="w-4 h-4" />
+                    </div>
+                    <input 
+                      type="number" 
+                      placeholder="Custom Step" 
+                      value={stepSize}
+                      step="0.01"
+                      onChange={(e) => setStepSize(parseFloat(e.target.value) || 0)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-12 pr-12 py-4 text-xs font-bold text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-600 uppercase">mm</span>
                   </div>
                 </div>
 
