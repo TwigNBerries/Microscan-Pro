@@ -4,6 +4,10 @@ import {
   Ruler, 
   ArrowUp, 
   ArrowDown, 
+  ArrowLeft,
+  ArrowRight,
+  MoveUp,
+  MoveDown,
   CheckCircle2, 
   AlertTriangle, 
   ChevronRight, 
@@ -104,23 +108,61 @@ const MagnificationVerifier: React.FC<Props> = ({
                   <span className="text-xl font-mono font-black text-white">{currentZ.toFixed(3)} <span className="text-[10px] text-slate-600">mm</span></span>
                 </div>
 
-                <div className="flex gap-4">
-                  <button 
-                    onClick={() => onJog('Z', stepSize, 3000)}
-                    disabled={!isConnected || !isPrinterReady}
-                    className="flex-1 flex flex-col items-center gap-2 py-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-2xl border border-slate-700 transition-all active:scale-95"
-                  >
-                    <ArrowUp className="w-5 h-5 text-amber-500" />
-                    <span className="text-[10px] font-black text-slate-300 uppercase">Jog Up</span>
-                  </button>
-                  <button 
-                    onClick={() => onJog('Z', -stepSize, 3000)}
-                    disabled={!isConnected || !isPrinterReady}
-                    className="flex-1 flex flex-col items-center gap-2 py-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-2xl border border-slate-700 transition-all active:scale-95"
-                  >
-                    <ArrowDown className="w-5 h-5 text-amber-500" />
-                    <span className="text-[10px] font-black text-slate-300 uppercase">Jog Down</span>
-                  </button>
+                <div className="flex flex-col items-center gap-4">
+                  {/* X/Y Jog Pad */}
+                  <div className="relative w-32 h-32">
+                    <button 
+                      onClick={() => onJog('Y', stepSize, 3000)}
+                      disabled={!isConnected || !isPrinterReady}
+                      className="absolute top-0 left-1/2 -translate-x-1/2 w-10 h-10 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-xl flex items-center justify-center border border-slate-700 shadow-lg active:scale-90 transition-all"
+                    >
+                      <ArrowUp className="w-4 h-4 text-cyan-400" />
+                    </button>
+                    <button 
+                      onClick={() => onJog('Y', -stepSize, 3000)}
+                      disabled={!isConnected || !isPrinterReady}
+                      className="absolute bottom-0 left-1/2 -translate-x-1/2 w-10 h-10 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-xl flex items-center justify-center border border-slate-700 shadow-lg active:scale-90 transition-all"
+                    >
+                      <ArrowDown className="w-4 h-4 text-cyan-400" />
+                    </button>
+                    <button 
+                      onClick={() => onJog('X', -stepSize, 3000)}
+                      disabled={!isConnected || !isPrinterReady}
+                      className="absolute left-0 top-1/2 -translate-y-1/2 w-10 h-10 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-xl flex items-center justify-center border border-slate-700 shadow-lg active:scale-90 transition-all"
+                    >
+                      <ArrowLeft className="w-4 h-4 text-cyan-400" />
+                    </button>
+                    <button 
+                      onClick={() => onJog('X', stepSize, 3000)}
+                      disabled={!isConnected || !isPrinterReady}
+                      className="absolute right-0 top-1/2 -translate-y-1/2 w-10 h-10 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-xl flex items-center justify-center border border-slate-700 shadow-lg active:scale-90 transition-all"
+                    >
+                      <ArrowRight className="w-4 h-4 text-cyan-400" />
+                    </button>
+                    <div className="absolute inset-0 m-auto w-6 h-6 bg-slate-950 border border-slate-800 rounded-full flex items-center justify-center shadow-inner">
+                      <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? (isPrinterReady ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse') : 'bg-slate-800'}`} />
+                    </div>
+                  </div>
+
+                  {/* Z Jog Buttons */}
+                  <div className="flex gap-4 w-full">
+                    <button 
+                      onClick={() => onJog('Z', stepSize, 3000)}
+                      disabled={!isConnected || !isPrinterReady}
+                      className="flex-1 flex items-center justify-center gap-2 py-3 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-2xl border border-slate-700 transition-all active:scale-95"
+                    >
+                      <MoveUp className="w-4 h-4 text-amber-500" />
+                      <span className="text-[10px] font-black text-slate-300 uppercase">+Z</span>
+                    </button>
+                    <button 
+                      onClick={() => onJog('Z', -stepSize, 3000)}
+                      disabled={!isConnected || !isPrinterReady}
+                      className="flex-1 flex items-center justify-center gap-2 py-3 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-2xl border border-slate-700 transition-all active:scale-95"
+                    >
+                      <MoveDown className="w-4 h-4 text-amber-500" />
+                      <span className="text-[10px] font-black text-slate-300 uppercase">-Z</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-4 gap-2">
