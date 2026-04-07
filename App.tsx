@@ -10,6 +10,7 @@ import StitchingView from './components/StitchingView';
 import StackingLab from './components/StackingLab';
 import DepthLab from './components/DepthLab';
 import ManualCapture from './components/ManualCapture';
+import MagnificationVerifier from './components/MagnificationVerifier';
 import { computeDepthMap } from './services/depthService';
 import JSZip from 'jszip';
 import { 
@@ -45,8 +46,10 @@ type QueueItem =
   | { type: 'CAPTURE'; label: string; r: number; c: number; z: number };
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'config' | 'jog' | 'manual' | 'gallery' | 'stitching' | 'stacking' | 'depth'>('config');
+  const [activeTab, setActiveTab] = useState<'config' | 'jog' | 'manual' | 'verify' | 'gallery' | 'stitching' | 'stacking' | 'depth'>('config');
   const [showCamera, setShowCamera] = useState(true);
+  
+  const [currentZ, setCurrentZ] = useState(0);
   
   const [settings, setSettings] = useState<ScanSettings>({
     sampleWidth: 1.0,
@@ -383,9 +386,44 @@ const App: React.FC = () => {
 
   const sendManualCommand = async (cmd: string) => {
     if (!isConnected || !writerRef.current) return;
-    cmd.split('\n').filter(l => l.trim()).forEach(l => masterQueueRef.current.push({ type: 'GCODE', value: l }));
+    cmd.split('\n').filter(l => l.trim()).forEach(l => {
+      const trimmed = l.trim().toUpperCase();
+      // Track Z position optimistically
+      if (trimmed.startsWith('G1') && trimmed.includes('Z')) {
+        const match = trimmed.match(/Z([-+]?[0-9]*\.?[0-9]+)/);
+        if (match) {
+          const val = parseFloat(match[1]);
+          if (trimmed.includes('G91')) {
+            // Relative move (though JogController sends G91 then G1 then G90)
+            // This is tricky because G91/G90 are separate lines in cmd.split('\n')
+          } else {
+            // Absolute move
+            // setCurrentZ(val); // We need to know if we are in G91 or G90
+          }
+        }
+      }
+      masterQueueRef.current.push({ type: 'GCODE', value: l });
+    });
     setRemainingItems(masterQueueRef.current.length);
   };
+
+  const handleJog = useCallback(async (axis: 'X' | 'Y' | 'Z', distance: number, feedrate: number) => {
+    if (!isConnected) return;
+    const f = axis === 'Z' ? 600 : feedrate;
+    const cmd = `G91\nG1 ${axis}${distance} F${f}\nG90`;
+    
+    if (axis === 'Z') {
+      setCurrentZ(prev => prev + distance);
+    }
+    
+    await sendManualCommand(cmd);
+  }, [isConnected, sendManualCommand]);
+
+  const handleHome = useCallback(async () => {
+    if (!isConnected) return;
+    await sendManualCommand("G28");
+    setCurrentZ(0); // Assume homing sets Z to 0
+  }, [isConnected, sendManualCommand]);
 
   const handleStartScan = () => {
     if (!isConnected) return;
@@ -513,6 +551,7 @@ const App: React.FC = () => {
             { id: 'config', label: 'Setup', icon: LayoutGrid },
             { id: 'jog', label: 'Jog', icon: Activity },
             { id: 'manual', label: 'Manual', icon: Camera },
+            { id: 'verify', label: 'Verify', icon: Ruler },
             { id: 'stacking', label: 'Stack', icon: Sparkles },
             { id: 'depth', label: 'Depth', icon: Map },
             { id: 'stitching', label: 'Stitch', icon: Combine },
@@ -662,6 +701,8 @@ const App: React.FC = () => {
           <JogController 
             stackedResults={stackedResults} 
             onSendCommand={sendManualCommand} 
+            onJog={handleJog}
+            onHome={handleHome}
             isConnected={isConnected} 
             isPrinterReady={isPrinterReady} 
             onConnect={() => {}} 
@@ -676,6 +717,7 @@ const App: React.FC = () => {
         {activeTab === 'manual' && (
           <ManualCapture
             onSendCommand={sendManualCommand}
+            onJog={handleJog}
             onCapture={takeManualSnapshot}
             manualCaptures={manualCaptures}
             setManualCaptures={setManualCaptures}
@@ -686,6 +728,19 @@ const App: React.FC = () => {
             setStepSize={setJogStep}
             feedrate={jogFeedrate}
             setFeedrate={setJogFeedrate}
+          />
+        )}
+        {activeTab === 'verify' && (
+          <MagnificationVerifier
+            settings={settings}
+            setSettings={setSettings}
+            currentZ={currentZ}
+            onJog={handleJog}
+            onHome={handleHome}
+            isConnected={isConnected}
+            isPrinterReady={isPrinterReady}
+            onProceed={() => setActiveTab('config')}
+            onReturn={() => setActiveTab('config')}
           />
         )}
         {activeTab === 'stacking' && <StackingLab results={stackedResults} capturedImages={groupedCapturedImages} />}

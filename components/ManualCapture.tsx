@@ -24,6 +24,7 @@ import { CapturedImage } from '../types';
 
 interface Props {
   onSendCommand: (cmd: string) => Promise<void>;
+  onJog: (axis: 'X' | 'Y' | 'Z', distance: number, feedrate: number) => Promise<void>;
   onCapture: () => boolean;
   manualCaptures: CapturedImage[];
   setManualCaptures: React.Dispatch<React.SetStateAction<CapturedImage[]>>;
@@ -38,6 +39,7 @@ interface Props {
 
 const ManualCapture: React.FC<Props> = ({ 
   onSendCommand, 
+  onJog,
   onCapture,
   manualCaptures,
   setManualCaptures,
@@ -59,9 +61,8 @@ const ManualCapture: React.FC<Props> = ({
     if (now - lastCommandTime.current < 80) return; 
     lastCommandTime.current = now;
 
-    const f = axis === 'Z' ? 600 : feedrate;
-    await onSendCommand(`G91\nG1 ${axis}${distance} F${f}\nG90`);
-  }, [isConnected, onSendCommand, feedrate]);
+    await onJog(axis, distance, feedrate);
+  }, [isConnected, onJog, feedrate]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

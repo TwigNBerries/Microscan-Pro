@@ -22,6 +22,8 @@ import { StackResult } from '../types';
 
 interface Props {
   onSendCommand: (cmd: string) => Promise<void>;
+  onJog: (axis: 'X' | 'Y' | 'Z', distance: number, feedrate: number) => Promise<void>;
+  onHome: () => Promise<void>;
   isConnected: boolean;
   isPrinterReady: boolean;
   onConnect: () => void;
@@ -36,6 +38,8 @@ interface Props {
 
 const JogController: React.FC<Props> = ({ 
   onSendCommand, 
+  onJog,
+  onHome,
   isConnected, 
   isPrinterReady, 
   onConnect, 
@@ -57,9 +61,8 @@ const JogController: React.FC<Props> = ({
     if (now - lastCommandTime.current < 80) return; 
     lastCommandTime.current = now;
 
-    const f = axis === 'Z' ? 600 : feedrate;
-    await onSendCommand(`G91\nG1 ${axis}${distance} F${f}\nG90`);
-  }, [isConnected, onSendCommand, feedrate]);
+    await onJog(axis, distance, feedrate);
+  }, [isConnected, onJog, feedrate]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -107,7 +110,7 @@ const JogController: React.FC<Props> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
           <div className="lg:col-span-3 space-y-3">
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Utilities</label>
-            <button onClick={() => onSendCommand("G28")} disabled={!isConnected} className="w-full flex items-center justify-between px-5 py-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-2xl border border-slate-700 transition-all text-xs font-bold text-slate-300">Home All <Home className="w-4 h-4 text-cyan-500" /></button>
+            <button onClick={() => onHome()} disabled={!isConnected} className="w-full flex items-center justify-between px-5 py-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-2xl border border-slate-700 transition-all text-xs font-bold text-slate-300">Home All <Home className="w-4 h-4 text-cyan-500" /></button>
             <button onClick={() => onSendCommand("G28 X Y")} disabled={!isConnected} className="w-full flex items-center justify-between px-5 py-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-20 rounded-2xl border border-slate-700 transition-all text-xs font-bold text-slate-300">Home X/Y <Crosshair className="w-4 h-4 text-cyan-400" /></button>
             <button onClick={() => onSendCommand("G92 X0 Y0 Z10")} disabled={!isConnected} className="w-full flex items-center justify-between px-5 py-4 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-20 rounded-2xl border border-emerald-500/20 transition-all text-xs font-bold text-emerald-400">Set Zero Here <div className="w-2 h-2 rounded-full bg-emerald-500" /></button>
             <button onClick={() => onSendCommand("M18")} disabled={!isConnected} className="w-full flex items-center justify-between px-5 py-4 bg-slate-800/30 hover:bg-rose-500/10 disabled:opacity-20 rounded-2xl border border-slate-800 transition-all text-xs font-bold text-slate-500 hover:text-rose-400">Unlock Motors <Unlock className="w-4 h-4" /></button>
