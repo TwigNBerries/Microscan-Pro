@@ -9,6 +9,7 @@ import JogController from './components/JogController';
 import StitchingView from './components/StitchingView';
 import StackingLab from './components/StackingLab';
 import DepthLab from './components/DepthLab';
+import ManualCapture from './components/ManualCapture';
 import { computeDepthMap } from './services/depthService';
 import JSZip from 'jszip';
 import { 
@@ -44,7 +45,7 @@ type QueueItem =
   | { type: 'CAPTURE'; label: string; r: number; c: number; z: number };
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'config' | 'jog' | 'gallery' | 'stitching' | 'stacking' | 'depth'>('config');
+  const [activeTab, setActiveTab] = useState<'config' | 'jog' | 'manual' | 'gallery' | 'stitching' | 'stacking' | 'depth'>('config');
   const [showCamera, setShowCamera] = useState(true);
   
   const [settings, setSettings] = useState<ScanSettings>({
@@ -63,6 +64,7 @@ const App: React.FC = () => {
   });
 
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([]);
+  const [manualCaptures, setManualCaptures] = useState<CapturedImage[]>([]);
   const [stackedResults, setStackedResults] = useState<Record<string, StackResult>>({});
   const [depthResults, setDepthResults] = useState<Record<string, DepthResult>>({});
   const [isExporting, setIsExporting] = useState(false);
@@ -124,8 +126,9 @@ const App: React.FC = () => {
   }, [isScanning, remainingItems]);
 
   const handleClearAllData = useCallback(() => {
-    if (confirm("DANGER: This will permanently delete all captured images, stacked masters, and reset the stitching lab. Continue?")) {
+    if (confirm("DANGER: This will permanently delete all captured images, manual captures, stacked masters, and reset the stitching lab. Continue?")) {
       setCapturedImages([]);
+      setManualCaptures([]);
       setStackedResults({});
       setDepthResults({});
       addLog("SYSTEM: Laboratory cleared. Memory reset.");
@@ -290,6 +293,46 @@ const App: React.FC = () => {
     }
     setCapturedImages(prev => [{ id: Math.random().toString(36).substr(2, 9), name, label, dataUrl, timestamp: Date.now(), gridPos: { r, c, z } }, ...prev]);
     return true;
+  };
+
+  const takeManualSnapshot = () => {
+    let dataUrl = "";
+    if (videoRef.current && videoRef.current.readyState === 4 && canvasRef.current) {
+        const canvas = canvasRef.current;
+        const video = videoRef.current;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        }
+    } else {
+        if (canvasRef.current) {
+            const canvas = canvasRef.current;
+            canvas.width = 1280; canvas.height = 720;
+            const ctx = canvas.getContext('2d')!;
+            ctx.fillStyle = '#1e293b'; ctx.fillRect(0,0,1280,720);
+            ctx.fillStyle = '#334155'; ctx.font = 'bold 32px monospace';
+            ctx.fillText(`MANUAL CAPTURE: ${new Date().toLocaleTimeString()}`, 80, 360);
+            dataUrl = canvas.toDataURL();
+        }
+    }
+    
+    if (dataUrl) {
+      setManualCaptures(prev => [{ 
+        id: Math.random().toString(36).substr(2, 9), 
+        name: `Manual_${Date.now()}`, 
+        label: 'MANUAL', 
+        dataUrl, 
+        timestamp: Date.now(), 
+        gridPos: { r: 0, c: 0, z: 0 } 
+      }, ...prev]);
+      addLog("CAMERA: Manual capture saved.");
+      return true;
+    }
+    return false;
   };
 
   const readFromSerial = async (port: any) => {
@@ -465,10 +508,11 @@ const App: React.FC = () => {
           <div><h1 className="text-2xl font-black text-white tracking-tight">MicroScan Pro</h1><div className="flex items-center gap-2 mt-1"><span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-700'}`} /><span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{isConnected ? 'Hardware Linked' : 'System Offline'}</span></div></div>
         </div>
 
-        <nav className="flex p-1.5 bg-slate-900/80 rounded-2xl border border-slate-800 backdrop-blur-md">
+          <nav className="flex p-1.5 bg-slate-900/80 rounded-2xl border border-slate-800 backdrop-blur-md">
           {[
             { id: 'config', label: 'Setup', icon: LayoutGrid },
             { id: 'jog', label: 'Jog', icon: Activity },
+            { id: 'manual', label: 'Manual', icon: Camera },
             { id: 'stacking', label: 'Stack', icon: Sparkles },
             { id: 'depth', label: 'Depth', icon: Map },
             { id: 'stitching', label: 'Stitch', icon: Combine },
@@ -477,6 +521,7 @@ const App: React.FC = () => {
             <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === tab.id ? 'bg-slate-800 text-cyan-400 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
               <tab.icon className="w-4 h-4" /> {tab.label}
               {tab.id === 'gallery' && capturedImages.length > 0 && <span className="ml-1 px-1.5 py-0.5 bg-cyan-500 text-slate-900 text-[8px] rounded-full">{capturedImages.length}</span>}
+              {tab.id === 'manual' && manualCaptures.length > 0 && <span className="ml-1 px-1.5 py-0.5 bg-amber-500 text-slate-900 text-[8px] rounded-full">{manualCaptures.length}</span>}
             </button>
           ))}
         </nav>
@@ -621,6 +666,21 @@ const App: React.FC = () => {
             isPrinterReady={isPrinterReady} 
             onConnect={() => {}} 
             onDisconnect={() => setIsConnected(false)} 
+            queueSize={remainingItems}
+            stepSize={jogStep}
+            setStepSize={setJogStep}
+            feedrate={jogFeedrate}
+            setFeedrate={setJogFeedrate}
+          />
+        )}
+        {activeTab === 'manual' && (
+          <ManualCapture
+            onSendCommand={sendManualCommand}
+            onCapture={takeManualSnapshot}
+            manualCaptures={manualCaptures}
+            setManualCaptures={setManualCaptures}
+            isConnected={isConnected}
+            isPrinterReady={isPrinterReady}
             queueSize={remainingItems}
             stepSize={jogStep}
             setStepSize={setJogStep}
