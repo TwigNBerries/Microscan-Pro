@@ -1,9 +1,10 @@
 
 import React, { useState } from 'react';
 import { DepthResult, CapturedImage, DepthMethod, GridDimensions, ScanSettings } from '../types';
-import { Activity, RefreshCw, Map, CheckCircle, Clock, FolderDown, Download, Thermometer, FileText, Play, ArrowLeft, Combine, Trash2 } from 'lucide-react';
+import { Activity, RefreshCw, Map, CheckCircle, Clock, FolderDown, Download, Thermometer, FileText, Play, ArrowLeft, Combine, Trash2, FileOutput } from 'lucide-react';
 import JSZip from 'jszip';
 import StitchingView from './StitchingView';
+import { getInterpolatedData } from '../services/gcodeService';
 
 interface Props {
   results: Record<string, DepthResult>;
@@ -55,6 +56,42 @@ const DepthLab: React.FC<Props> = ({ results, capturedImages, onTriggerDepth, on
     link.click();
   };
 
+  const handleDownloadXYZ = (label: string) => {
+    const result = results[label];
+    if (!result || result.isProcessing) return;
+
+    const { depthValues, width, height } = result;
+    const specs = getInterpolatedData(settings.magnification);
+    const pixelSizeUm = (specs.fovX * 1000) / width;
+
+    const blobParts: string[] = ["X_um\tY_um\tZ_um\n"];
+    let currentChunk: string[] = [];
+    
+    for (let y = 0; y < height; y++) {
+      const yUm = (y * pixelSizeUm).toFixed(4);
+      for (let x = 0; x < width; x++) {
+        const xUm = (x * pixelSizeUm).toFixed(4);
+        const zUm = depthValues[y * width + x].toFixed(4);
+        currentChunk.push(`${xUm}\t${yUm}\t${zUm}\n`);
+        
+        if (currentChunk.length > 50000) {
+          blobParts.push(currentChunk.join(""));
+          currentChunk = [];
+        }
+      }
+    }
+    
+    if (currentChunk.length > 0) {
+      blobParts.push(currentChunk.join(""));
+    }
+    
+    const blob = new Blob(blobParts, { type: 'text/plain' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `Depth_Data_${label}.xyz`;
+    link.click();
+  };
+
   const handleDownloadAllDepths = async () => {
     const finished = (Object.values(results) as DepthResult[]).filter(r => r.dataUrl && !r.isProcessing);
     if (finished.length === 0) return;
@@ -63,6 +100,20 @@ const DepthLab: React.FC<Props> = ({ results, capturedImages, onTriggerDepth, on
     finished.forEach(res => {
       zip.file(`Heatmap_${res.label}.jpg`, res.dataUrl.split(',')[1], { base64: true });
       zip.file(`Data_${res.label}.csv`, generateCSV(res));
+      
+      // Generate XYZ for the zip
+      const specs = getInterpolatedData(settings.magnification);
+      const pixelSizeUm = (specs.fovX * 1000) / res.width;
+      const xyzRows = ["X_um\tY_um\tZ_um\n"];
+      for (let y = 0; y < res.height; y++) {
+        const yUm = (y * pixelSizeUm).toFixed(4);
+        for (let x = 0; x < res.width; x++) {
+          const xUm = (x * pixelSizeUm).toFixed(4);
+          const zUm = res.depthValues[y * res.width + x].toFixed(4);
+          xyzRows.push(`${xUm}\t${yUm}\t${zUm}\n`);
+        }
+      }
+      zip.file(`Data_${res.label}.xyz`, xyzRows.join(""));
     });
     
     const content = await zip.generateAsync({ type: "blob" });
@@ -221,6 +272,13 @@ const DepthLab: React.FC<Props> = ({ results, capturedImages, onTriggerDepth, on
                           title="Download CSV Data"
                         >
                           <FileText className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDownloadXYZ(label)}
+                          className="p-3 bg-slate-800 text-amber-400 rounded-xl hover:bg-slate-700 transition-all shadow-xl border border-white/10"
+                          title="Download Gwyddion XYZ"
+                        >
+                          <FileOutput className="w-4 h-4" />
                         </button>
                         <button 
                           onClick={() => { const link = document.createElement('a'); link.href = result.dataUrl; link.download = `Depth_${label}.jpg`; link.click(); }}
