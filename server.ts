@@ -2,6 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { execSync, spawn } from "child_process";
 import multer from "multer";
 import cors from "cors";
@@ -19,7 +20,7 @@ async function startServer() {
   app.use(express.urlencoded({ limit: '200mb', extended: true }));
 
   // Ensure temp directory exists
-  const tempDir = path.join(process.cwd(), 'temp_scans');
+  const tempDir = path.join(os.tmpdir(), 'temp_scans');
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir);
   }
