@@ -38,7 +38,8 @@ import {
   Loader2,
   Search,
   HelpCircle,
-  Map
+  Map,
+  FileUp
 } from 'lucide-react';
 
 type QueueItem = 
@@ -77,6 +78,7 @@ const App: React.FC = () => {
   const readerRef = useRef<any>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const masterQueueRef = useRef<QueueItem[]>([]);
   const lineBufferRef = useRef<string>("");
   const totalQueueSizeRef = useRef<number>(0);
@@ -445,11 +447,120 @@ const App: React.FC = () => {
     if (capturedImages.length === 0) return;
     setIsExporting(true);
     const zip = new JSZip();
+    
+    // Add metadata for future imports
+    const metadata = {
+      settings,
+      grid,
+      images: capturedImages.map(img => ({
+        filename: `Stack_${img.label}/${img.name}.jpg`,
+        label: img.label,
+        name: img.name,
+        gridPos: img.gridPos,
+        timestamp: img.timestamp
+      }))
+    };
+    zip.file("metadata.json", JSON.stringify(metadata, null, 2));
+
     capturedImages.forEach(img => zip.file(`Stack_${img.label}/${img.name}.jpg`, img.dataUrl.split(',')[1], { base64: true }));
     const content = await zip.generateAsync({ type: "blob" });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(content); link.download = `MicroScan_Project_${Date.now()}.zip`; link.click();
     setIsExporting(false);
+  };
+
+  const handleImportFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newImages: CapturedImage[] = [];
+    addLog(`SYSTEM: Importing ${files.length} files...`);
+
+    try {
+      for (const file of Array.from(files)) {
+        if (file.name.endsWith('.zip')) {
+          const zip = await JSZip.loadAsync(file);
+          
+          // Check for metadata.json
+          let metadata: any = null;
+          if (zip.files["metadata.json"]) {
+            const metaStr = await zip.files["metadata.json"].async("string");
+            metadata = JSON.parse(metaStr);
+            if (metadata.settings) setSettings(metadata.settings);
+            addLog("SYSTEM: Applied scan settings from metadata.");
+          }
+
+          const imageFiles = Object.keys(zip.files).filter(name => !zip.files[name].dir && /\.(jpg|jpeg|png)$/i.test(name));
+          
+          for (const name of imageFiles) {
+            const content = await zip.files[name].async('base64');
+            const dataUrl = `data:image/jpeg;base64,${content}`;
+            
+            // Try to find in metadata
+            const metaEntry = metadata?.images?.find((img: any) => img.filename === name);
+            
+            if (metaEntry) {
+              newImages.push({
+                id: Math.random().toString(36).substr(2, 9),
+                name: metaEntry.name,
+                label: metaEntry.label,
+                dataUrl,
+                timestamp: metaEntry.timestamp || Date.now(),
+                gridPos: metaEntry.gridPos
+              });
+            } else {
+              const pathParts = name.split('/');
+              const fileName = pathParts[pathParts.length - 1];
+              const labelMatch = name.match(/Stack_([A-Z0-9]+)/i) || fileName.match(/^([A-Z0-9]+)_/i);
+              const zMatch = fileName.match(/_(\d+)\./);
+              
+              const label = labelMatch ? labelMatch[1] : 'IMPORTED';
+              const z = zMatch ? parseInt(zMatch[1]) : 0;
+              
+              newImages.push({
+                id: Math.random().toString(36).substr(2, 9),
+                name: fileName.split('.')[0],
+                label,
+                dataUrl,
+                timestamp: Date.now(),
+                gridPos: { r: 0, c: 0, z }
+              });
+            }
+          }
+        } else if (file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          const dataUrl = await new Promise<string>((resolve) => {
+            reader.onload = (e) => resolve(e.target?.result as string);
+            reader.readAsDataURL(file);
+          });
+
+          const fileName = file.name;
+          const labelMatch = fileName.match(/^([A-Z0-9]+)_/i);
+          const zMatch = fileName.match(/_(\d+)\./);
+          
+          const label = labelMatch ? labelMatch[1] : 'IMPORTED';
+          const z = zMatch ? parseInt(zMatch[1]) : 0;
+
+          newImages.push({
+            id: Math.random().toString(36).substr(2, 9),
+            name: fileName.split('.')[0],
+            label,
+            dataUrl,
+            timestamp: Date.now(),
+            gridPos: { r: 0, c: 0, z }
+          });
+        }
+      }
+
+      if (newImages.length > 0) {
+        setCapturedImages(prev => [...newImages, ...prev]);
+        addLog(`SYSTEM: Successfully imported ${newImages.length} images.`);
+      }
+    } catch (err) {
+      addLog(`SYSTEM ERROR: Import failed. ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   return (
@@ -760,6 +871,17 @@ const App: React.FC = () => {
             <div className="flex justify-between items-end">
               <div><h2 className="text-2xl font-black text-white">Capture Library</h2><p className="text-xs text-slate-500 uppercase tracking-widest mt-1">Managed Z-Stack Repositories</p></div>
               <div className="flex gap-4">
+                <button onClick={() => fileInputRef.current?.click()} className="px-6 py-3 bg-slate-800 text-white border border-slate-700 rounded-2xl font-black text-xs hover:bg-slate-700 transition-all flex items-center gap-2">
+                  <FileUp className="w-4 h-4" /> Import Scan Data
+                </button>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  className="hidden" 
+                  accept=".zip,image/*" 
+                  multiple 
+                  onChange={handleImportFiles} 
+                />
                 <button onClick={handleDownloadAllStructured} className="px-6 py-3 bg-cyan-500 text-slate-900 rounded-2xl font-black text-xs shadow-xl active:scale-95 transition-all"><FolderDown className="w-4 h-4 inline mr-2" /> Download Project ZIP</button>
                 <button onClick={handleClearAllData} className="px-6 py-3 bg-rose-500/10 text-rose-500 border border-rose-500/20 rounded-2xl font-black text-xs hover:bg-rose-500 hover:text-white transition-all"><Trash2 className="w-4 h-4 inline mr-2" /> Clear All Imagery</button>
               </div>
