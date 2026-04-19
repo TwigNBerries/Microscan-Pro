@@ -71,6 +71,7 @@ const App: React.FC = () => {
   const [manualCaptures, setManualCaptures] = useState<CapturedImage[]>([]);
   const [stackedResults, setStackedResults] = useState<Record<string, StackResult>>({});
   const [depthResults, setDepthResults] = useState<Record<string, DepthResult>>({});
+  const [stitchedMosaicUrl, setStitchedMosaicUrl] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
   const portRef = useRef<any>(null);
@@ -136,6 +137,7 @@ const App: React.FC = () => {
       setManualCaptures([]);
       setStackedResults({});
       setDepthResults({});
+      setStitchedMosaicUrl(null);
       addLog("SYSTEM: Laboratory cleared. Memory reset.");
     }
   }, []);
@@ -865,7 +867,16 @@ const App: React.FC = () => {
             settings={settings} 
           />
         )}
-        {activeTab === 'stitching' && <StitchingView images={capturedImages} stackedResults={stackedResults} grid={grid} settings={settings} />}
+        {activeTab === 'stitching' && (
+          <StitchingView 
+            images={capturedImages} 
+            stackedResults={stackedResults} 
+            grid={grid} 
+            settings={settings} 
+            stitchedMosaicUrl={stitchedMosaicUrl}
+            setStitchedMosaicUrl={setStitchedMosaicUrl}
+          />
+        )}
         {activeTab === 'gallery' && (
           <div className="space-y-8 animate-in fade-in duration-500">
             <div className="flex justify-between items-end">

@@ -1,7 +1,7 @@
 
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { CapturedImage, GridDimensions, ScanSettings, StackResult } from '../types';
-import { Download, ZoomIn, ZoomOut, Combine, ArrowLeft, Loader2, Image as ImageIcon } from 'lucide-react';
+import { Download, ZoomIn, ZoomOut, Combine, ArrowLeft, Loader2, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { getAlphabetLabel } from '../services/gcodeService';
 
 interface Props {
@@ -9,16 +9,30 @@ interface Props {
   stackedResults: Record<string, StackResult>;
   grid: GridDimensions;
   settings: ScanSettings;
+  stitchedMosaicUrl?: string | null;
+  setStitchedMosaicUrl?: (url: string | null) => void;
   title?: string;
 }
 
-const StitchingView: React.FC<Props> = ({ images, stackedResults, grid, settings, title = "Stitching Laboratory" }) => {
+const StitchingView: React.FC<Props> = ({ 
+  images, 
+  stackedResults, 
+  grid, 
+  settings, 
+  stitchedMosaicUrl: propUrl,
+  setStitchedMosaicUrl: propSetUrl,
+  title = "Stitching Laboratory" 
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(0.8);
   const [isStitching, setIsStitching] = useState(false);
-  const [hasStitched, setHasStitched] = useState(false);
-  const [stitchedDataUrl, setStitchedDataUrl] = useState<string | null>(null);
   const [stitchProgress, setStitchProgress] = useState(0);
+  
+  const [localUrl, setLocalUrl] = useState<string | null>(null);
+  const stitchedMosaicUrl = propUrl !== undefined ? propUrl : localUrl;
+  const setStitchedMosaicUrl = propSetUrl || setLocalUrl;
+
+  const hasStitched = !!stitchedMosaicUrl;
 
   const tileMap = useMemo(() => {
     const map: Record<string, { dataUrl: string; isOptimized: boolean }> = {};
@@ -169,7 +183,7 @@ const StitchingView: React.FC<Props> = ({ images, stackedResults, grid, settings
         const ctx = canvas.getContext('2d')!;
         ctx.putImageData(finalMosaic, 0, 0);
         const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-        setStitchedDataUrl(dataUrl); setHasStitched(true);
+        setStitchedMosaicUrl(dataUrl);
       }
     } catch (err) { console.error("Stitching failed:", err); } 
     finally { setIsStitching(false); setStitchProgress(100); }
@@ -185,7 +199,13 @@ const StitchingView: React.FC<Props> = ({ images, stackedResults, grid, settings
         <div className="flex gap-3">
           {hasStitched ? (
             <>
-              <button onClick={() => { setHasStitched(false); setStitchedDataUrl(null); }} className="px-6 py-3 bg-slate-800 text-slate-400 rounded-2xl font-black text-xs border border-slate-700 hover:text-white transition-all flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> Reset</button>
+              <button 
+                onClick={() => setStitchedMosaicUrl(null)} 
+                className="px-6 py-3 bg-rose-500/10 text-rose-500 rounded-2xl font-black text-xs border border-rose-500/20 hover:bg-rose-500 hover:text-white transition-all flex items-center gap-2"
+                title="Discard the current stitch and redo"
+              >
+                <Trash2 className="w-4 h-4" /> Delete & Redo
+              </button>
               <button onClick={handleDownloadMosaic} className="px-6 py-3 bg-emerald-500 text-slate-900 rounded-2xl font-black text-xs shadow-xl flex items-center gap-2 hover:bg-emerald-400 transition-all"><Download className="w-4 h-4" /> Export Mosaic</button>
             </>
           ) : (
@@ -211,7 +231,7 @@ const StitchingView: React.FC<Props> = ({ images, stackedResults, grid, settings
            </div>
         ) : (
           <div className="w-full h-full flex items-center justify-center overflow-auto scrollbar-hide">
-            <img src={stitchedDataUrl!} className="max-h-full shadow-2xl rounded-lg transition-transform duration-300" style={{ transform: `scale(${zoom})` }} />
+            <img src={stitchedMosaicUrl!} className="max-h-full shadow-2xl rounded-lg transition-transform duration-300" style={{ transform: `scale(${zoom})` }} />
           </div>
         )}
         
