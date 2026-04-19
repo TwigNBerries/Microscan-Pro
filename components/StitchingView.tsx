@@ -1,7 +1,7 @@
 
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { CapturedImage, GridDimensions, ScanSettings, StackResult } from '../types';
-import { Download, ZoomIn, ZoomOut, Combine, ArrowLeft, Loader2, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { Download, ZoomIn, ZoomOut, Combine, ArrowLeft, Loader2, Image as ImageIcon, Trash2, RotateCw } from 'lucide-react';
 import { getAlphabetLabel } from '../services/gcodeService';
 
 interface Props {
@@ -27,6 +27,7 @@ const StitchingView: React.FC<Props> = ({
   const [zoom, setZoom] = useState(0.8);
   const [isStitching, setIsStitching] = useState(false);
   const [stitchProgress, setStitchProgress] = useState(0);
+  const [rotate180, setRotate180] = useState(false);
   
   const [localUrl, setLocalUrl] = useState<string | null>(null);
   const stitchedMosaicUrl = propUrl !== undefined ? propUrl : localUrl;
@@ -45,7 +46,7 @@ const StitchingView: React.FC<Props> = ({
     return map;
   }, [images, stackedResults]);
 
-  const getImageData = async (url: string): Promise<ImageData> => {
+  const getImageData = async (url: string, shouldRotate: boolean = false): Promise<ImageData> => {
     const img = new Image();
     img.src = url;
     await new Promise((resolve, reject) => {
@@ -56,7 +57,15 @@ const StitchingView: React.FC<Props> = ({
     canvas.width = img.width;
     canvas.height = img.height;
     const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-    ctx.drawImage(img, 0, 0);
+    
+    if (shouldRotate) {
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(Math.PI);
+      ctx.drawImage(img, -canvas.width / 2, -canvas.height / 2);
+    } else {
+      ctx.drawImage(img, 0, 0);
+    }
+    
     return ctx.getImageData(0, 0, img.width, img.height);
   };
 
@@ -165,7 +174,7 @@ const StitchingView: React.FC<Props> = ({
           const label = `${rowLabel}${c + 1}`;
           const tileData = tileMap[label];
           if (!tileData) continue;
-          const currentTileImageData = await getImageData(tileData.dataUrl);
+          const currentTileImageData = await getImageData(tileData.dataUrl, rotate180);
           if (!currentRowMosaic) currentRowMosaic = currentTileImageData;
           else currentRowMosaic = blendHorizontal(currentRowMosaic, currentTileImageData, settings.overlapPercent);
         }
@@ -209,9 +218,18 @@ const StitchingView: React.FC<Props> = ({
               <button onClick={handleDownloadMosaic} className="px-6 py-3 bg-emerald-500 text-slate-900 rounded-2xl font-black text-xs shadow-xl flex items-center gap-2 hover:bg-emerald-400 transition-all"><Download className="w-4 h-4" /> Export Mosaic</button>
             </>
           ) : (
-            <button onClick={executeHierarchicalStitch} disabled={isStitching} className="px-8 py-3 bg-cyan-500 text-slate-900 rounded-2xl font-black text-xs shadow-xl flex items-center gap-2 disabled:opacity-30">
-              {isStitching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Combine className="w-4 h-4" />} Stitch Mosaic
-            </button>
+            <>
+              <button 
+                onClick={() => setRotate180(!rotate180)} 
+                className={`px-6 py-3 border rounded-2xl font-black text-xs transition-all flex items-center gap-2 ${rotate180 ? 'bg-amber-500 text-slate-900 border-amber-400' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}
+                title="Toggle 180 degree rotation for every tile"
+              >
+                <RotateCw className="w-4 h-4" /> 180° Flip
+              </button>
+              <button onClick={executeHierarchicalStitch} disabled={isStitching} className="px-8 py-3 bg-cyan-500 text-slate-900 rounded-2xl font-black text-xs shadow-xl flex items-center gap-2 disabled:opacity-30">
+                {isStitching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Combine className="w-4 h-4" />} Stitch Mosaic
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -223,7 +241,7 @@ const StitchingView: React.FC<Props> = ({
                 const tile = tileMap[label];
                 return (
                   <div key={label} className={`aspect-video rounded-lg border flex items-center justify-center relative overflow-hidden ${tile ? (tile.isOptimized ? 'border-amber-500/50 bg-slate-900' : 'border-cyan-500/50 bg-slate-900') : 'border-slate-800 border-dashed bg-slate-900/50'}`}>
-                    {tile && <img src={tile.dataUrl} className="w-full h-full object-cover" />}
+                    {tile && <img src={tile.dataUrl} className={`w-full h-full object-cover transition-transform duration-500 ${rotate180 ? 'rotate-180' : ''}`} />}
                     <span className="absolute bottom-1 right-1 text-[8px] font-black text-white/50">{label}</span>
                   </div>
                 );
