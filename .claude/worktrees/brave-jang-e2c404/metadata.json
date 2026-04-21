@@ -1,0 +1,8 @@
+{
+  "name": "MicroScan Pro: 3D Surface Architect",
+  "description": "Professional 3D printer scanning suite with focus-stacked microscopy, topographic depth estimation, and Dino-Lite AM8917MZT hardware integration.",
+  "requestFramePermissions": [
+    "serial",
+    "camera"
+  ]
+}

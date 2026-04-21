@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Read(//c/Program Files/DNX64/**)",
+      "Bash(ls \"C:/Program Files/DNX64/Samples\"/*)",
+      "Bash(ls *.json *.ts *.js)",
+      "Bash(mkdir \"%TEMP%\\\\dnx64_unzip\")",
+      "Read(//d %TEMP%/**)",
+      "Bash(tar -xf \"C:\\\\Program Files\\\\DNX64\\\\Samples\\\\DNX64C#.zip\")",
+      "Bash(dir /b /s)",
+      "Bash(mkdir -p /tmp/dnx64_samples/cs /tmp/dnx64_samples/vc /tmp/dnx64_samples/vb)",
+      "Bash(unzip -o \"C:\\\\Program Files\\\\DNX64\\\\Samples\\\\DNX64C#.zip\" -d /tmp/dnx64_samples/cs)",
+      "Bash(unzip -o \"C:\\\\Program Files\\\\DNX64\\\\Samples\\\\DNX64VC.zip\" -d /tmp/dnx64_samples/vc)",
+      "Bash(unzip -o \"C:\\\\Program Files\\\\DNX64\\\\Samples\\\\DNX64VB.zip\" -d /tmp/dnx64_samples/vb)",
+      "Read(//tmp/dnx64_samples/**)"
+    ]
+  }
+}

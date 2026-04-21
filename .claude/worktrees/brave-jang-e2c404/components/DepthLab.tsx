@@ -14,13 +14,12 @@ interface Props {
   onClearDepth: (label: string) => void;
   grid: GridDimensions;
   settings: ScanSettings;
-  rotateFrames: boolean;
-  setRotateFrames: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-const DepthLab: React.FC<Props> = ({ results, capturedImages, onTriggerDepth, onClearDepth, grid, settings, rotateFrames, setRotateFrames }) => {
+const DepthLab: React.FC<Props> = ({ results, capturedImages, onTriggerDepth, onClearDepth, grid, settings }) => {
   const sortedLabels = Object.keys(capturedImages).sort();
   const [selectedMethod, setSelectedMethod] = useState<DepthMethod>('laplacian');
+  const [rotateFrames, setRotateFrames] = useState(false);
   const [isStitchingXYZ, setIsStitchingXYZ] = useState(false);
   const finishedCount = (Object.values(results) as DepthResult[]).filter(r => r.dataUrl && !r.isProcessing).length;
 
@@ -98,22 +97,7 @@ const DepthLab: React.FC<Props> = ({ results, capturedImages, onTriggerDepth, on
   };
 
   const handleDownloadStitchedXYZ = async () => {
-    if (isStitchingXYZ) return;
-    setIsStitchingXYZ(true);
-    try {
-      await new Promise<void>(resolve => setTimeout(resolve, 0));
-      const blob = stitchDepthToXYZ(results, grid, settings, rotateFrames);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `Depth_Stitched_${Date.now()}.xyz`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 100);
-    } catch (err) {
-      console.error("Stitched XYZ export failed:", err);
-    } finally {
-      setIsStitchingXYZ(false);
-    }
+    // Implemented in Task 6
   };
 
   const handleDownloadAllDepths = async () => {

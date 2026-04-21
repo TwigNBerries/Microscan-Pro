@@ -1,0 +1,20 @@
+{
+  "name": "MicroScan G-Code Architect",
+  "short_name": "MicroScan",
+  "description": "Professional 3D Printer Microscope Scanning Suite",
+  "start_url": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3209/3209121.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "orientation": "any",
+  "categories": ["productivity", "utilities"]
+}

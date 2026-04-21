@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/mnt/c/Users/jonah/Downloads/Microscan-Pro-main/Microscan-Pro-main/.claude/worktrees/confident-benz-7250da/**)",
+      "Bash(npm run *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(ls docs/superpowers/plans/)",
+      "Bash(ls .claude/worktrees/confident-benz-7250da/docs/superpowers/plans/)",
+      "Bash(ls *.ts types.ts)",
+      "Bash(find . -maxdepth 3 -name \"types.ts\" -not -path \"*/node_modules/*\")",
+      "Bash(git -C \"C:/Users/jonah/Downloads/Microscan-Pro-main/Microscan-Pro-main/.claude/worktrees/confident-benz-7250da\" show HEAD:tsconfig.json)",
+      "Bash(git -C \"C:/Users/jonah/Downloads/Microscan-Pro-main/Microscan-Pro-main\" show claude/confident-benz-7250da:components/DepthLab.tsx)",
+      "Bash(git -C \"C:/Users/jonah/Downloads/Microscan-Pro-main/Microscan-Pro-main\" show master:components/DepthLab.tsx)",
+      "Bash(git -C \"C:/Users/jonah/Downloads/Microscan-Pro-main/Microscan-Pro-main\" log --oneline -5)",
+      "Bash(git -C \"C:/Users/jonah/Downloads/Microscan-Pro-main/Microscan-Pro-main\" status --short)",
+      "Bash(git -C \"C:\\\\Users\\\\jonah\\\\Downloads\\\\Microscan-Pro-main\\\\Microscan-Pro-main\\\\.claude\\\\worktrees\\\\confident-benz-7250da\" diff main..HEAD -- components/DepthLab.tsx)",
+      "Bash(ls *.ts)",
+      "Bash(ls services/*.ts)",
+      "Bash(awk -F'\\\\t' 'NR>1{print $2}' \"Depth_Stitched_1776490353214.xyz\")",
+      "Bash(awk -F'\\\\t' 'NR>1{print $1}' \"Depth_Stitched_1776490353214.xyz\")",
+      "Bash(awk -F'\\\\t' 'NR>1 && $3!=\"NaN\" {print $3}' \"Depth_Stitched_1776490353214.xyz\")",
+      "Bash(awk -F'\\\\t' 'NR>1 && $3!=\"NaN\" {c++} END{print c}' \"Depth_Stitched_1776490353214.xyz\")",
+      "Bash(awk -F'\\\\t' 'NR>1 && $3==\"NaN\" {c++} END{print c}' \"Depth_Stitched_1776490353214.xyz\")",
+      "Bash(awk -F'\\\\t' 'NR>1 && $3==\"0.0000\" {c++} END{print c}' \"Depth_Stitched_1776490353214.xyz\")",
+      "Bash(awk -F'\\\\t' 'NR>1 && $3!=\"NaN\" {if\\($3+0>max\\)max=$3+0; if\\(NR==2||$3+0<min\\)min=$3+0} END{print \"min=\"min, \"max=\"max}' \"Depth_Stitched_1776490353214.xyz\")",
+      "Bash(ls -la \"Depth_Data_A1 \\(1\\).xyz\")",
+      "Bash(awk -F'\\\\t' 'NR>1 {if\\($3+0>max\\)max=$3+0; if\\(NR==2||$3+0<min\\)min=$3+0} END{print \"min=\"min, \"max=\"max}' \"Depth_Data_A1 \\(1\\).xyz\")",
+      "Bash(awk -F'\\\\t' 'NR>1 && $3!=\"NaN\" && $3!=\"0.0000\" {n++; s+=$3; if\\($3>0.001 && $3<2\\) tiny++} END {print \"nonzero valid:\", n, \"mean:\", s/n, \"values<2μm:\", tiny}' \"Depth_Stitched_1776490353214.xyz\")",
+      "Bash(awk -F'\\\\t' 'NR>1 && $3!=\"NaN\" {print int\\($3/100\\)*100}' \"Depth_Stitched_1776490353214.xyz\")",
+      "Read(//c/Users/jonah/Downloads/Microscan-Pro-main/Microscan-Pro-main/**)",
+      "Bash(npx tsc *)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(git -C \"C:/Users/jonah/Downloads/Microscan-Pro-main/Microscan-Pro-main/.claude/worktrees/confident-benz-7250da\" log --oneline -5)",
+      "Bash(git -C \"C:/Users/jonah/Downloads/Microscan-Pro-main/Microscan-Pro-main/.claude/worktrees/confident-benz-7250da\" diff 6198bdd 6f6e44f -- components/DataProcessing.tsx)"
+    ]
+  }
+}

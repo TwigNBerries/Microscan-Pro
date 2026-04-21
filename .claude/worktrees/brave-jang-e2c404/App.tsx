@@ -9,7 +9,6 @@ import JogController from './components/JogController';
 import StitchingView from './components/StitchingView';
 import StackingLab from './components/StackingLab';
 import DepthLab from './components/DepthLab';
-import DataProcessing from './components/DataProcessing';
 import ManualCapture from './components/ManualCapture';
 import MagnificationVerifier from './components/MagnificationVerifier';
 import { computeDepthMap } from './services/depthService';
@@ -40,8 +39,7 @@ import {
   Search,
   HelpCircle,
   Map,
-  FileUp,
-  Sliders
+  FileUp
 } from 'lucide-react';
 
 interface CameraControlState {
@@ -59,9 +57,7 @@ type QueueItem =
   | { type: 'CAPTURE'; label: string; r: number; c: number; z: number };
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'config' | 'jog' | 'manual' | 'verify' | 'gallery' | 'stitching' | 'stacking' | 'depth' | 'processing'>('config');
-  const [filteredResults, setFilteredResults] = useState<Record<string, DepthResult>>({});
-  const [rotateFrames, setRotateFrames] = useState(false);
+  const [activeTab, setActiveTab] = useState<'config' | 'jog' | 'manual' | 'verify' | 'gallery' | 'stitching' | 'stacking' | 'depth'>('config');
   const [showCamera, setShowCamera] = useState(true);
 
   // Continuously poll the microscope for its current AMR magnification.
@@ -156,6 +152,8 @@ const App: React.FC = () => {
   const masterQueueRef = useRef<QueueItem[]>([]);
   const lineBufferRef = useRef<string>("");
   const totalQueueSizeRef = useRef<number>(0);
+  const depthQueueRef = useRef<{ label: string; images: CapturedImage[] }[]>([]);
+  const isDepthProcessingRef = useRef(false);
 
   const [isConnected, setIsConnected] = useState(false);
   const [isPrinterReady, setIsPrinterReady] = useState(true);
@@ -229,9 +227,14 @@ const App: React.FC = () => {
         if (!stackedResults[label]) {
           handleTriggerStack(label, images);
         }
+        if (!depthResults[label] && !depthQueueRef.current.find(i => i.label === label)) {
+          depthQueueRef.current.push({ label, images });
+          drainDepthQueue();
+        }
       }
     });
-  }, [groupedCapturedImages, settings.zStackCount, stackedResults]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- drainDepthQueue omitted: defined after this hook (TDZ prevents listing it); captured handleTriggerDepth may be stale if settings change, but settings are frozen during a scan so this is safe in practice
+  }, [groupedCapturedImages, settings.zStackCount, stackedResults, depthResults]);
 
   const handleTriggerStack = async (label: string, images: CapturedImage[]) => {
     setStackedResults(prev => ({
@@ -248,13 +251,7 @@ const App: React.FC = () => {
     }));
   };
 
-  const handleTriggerDepth = async (label: string, images: CapturedImage[], method: DepthMethod = 'laplacian') => {
-    setFilteredResults(prev => {
-      if (!(label in prev)) return prev;
-      const next = { ...prev };
-      delete next[label];
-      return next;
-    });
+  const handleTriggerDepth = useCallback(async (label: string, images: CapturedImage[], method: DepthMethod = 'laplacian') => {
     setDepthResults(prev => ({
       ...prev,
       [label]: { label, dataUrl: "", depthValues: [], width: 0, height: 0, isProcessing: true, minZ: 0, maxZ: 0, method }
@@ -264,9 +261,9 @@ const App: React.FC = () => {
     try {
       const downscaleFactor = (settings.depthDownscale && videoDimensions.width > 2000) ? 2.0 : 1.0;
       const result = await computeDepthMap(
-        images, 
-        method, 
-        downscaleFactor, 
+        images,
+        method,
+        downscaleFactor,
         settings.zStepMicrons,
         pixelResolution
       );
@@ -291,7 +288,20 @@ const App: React.FC = () => {
         return next;
       });
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- addLog has [] deps so its ref is stable; it's defined after this hook so can't be listed here
+  }, [settings.depthDownscale, videoDimensions.width, settings.zStepMicrons, pixelResolution]);
+
+  const drainDepthQueue = useCallback(async () => {
+    if (isDepthProcessingRef.current || depthQueueRef.current.length === 0) return;
+    isDepthProcessingRef.current = true;
+    const item = depthQueueRef.current.shift()!;
+    try {
+      await handleTriggerDepth(item.label, item.images, 'tenengrad');
+    } finally {
+      isDepthProcessingRef.current = false;
+      drainDepthQueue();
+    }
+  }, [handleTriggerDepth]);
 
   const addLog = useCallback((msg: string) => {
     const timestamp = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -921,7 +931,6 @@ const App: React.FC = () => {
             { id: 'verify', label: 'Verify', icon: Ruler },
             { id: 'stacking', label: 'Stack', icon: Sparkles },
             { id: 'depth', label: 'Depth', icon: Map },
-            { id: 'processing', label: 'Process', icon: Sliders },
             { id: 'stitching', label: 'Stitch', icon: Combine },
             { id: 'gallery', label: 'Gallery', icon: ImageIcon }
           ].map(tab => (
@@ -1170,25 +1179,13 @@ const App: React.FC = () => {
         )}
         {activeTab === 'stacking' && <StackingLab results={stackedResults} capturedImages={groupedCapturedImages} />}
         {activeTab === 'depth' && (
-          <DepthLab
-            results={depthResults}
-            capturedImages={groupedCapturedImages}
-            onTriggerDepth={handleTriggerDepth}
+          <DepthLab 
+            results={depthResults} 
+            capturedImages={groupedCapturedImages} 
+            onTriggerDepth={handleTriggerDepth} 
             onClearDepth={handleClearDepth}
-            grid={grid}
-            settings={settings}
-            rotateFrames={rotateFrames}
-            setRotateFrames={setRotateFrames}
-          />
-        )}
-        {activeTab === 'processing' && (
-          <DataProcessing
-            results={depthResults}
-            filteredResults={filteredResults}
-            setFilteredResults={setFilteredResults}
-            grid={grid}
-            settings={settings}
-            rotateFrames={rotateFrames}
+            grid={grid} 
+            settings={settings} 
           />
         )}
         {activeTab === 'stitching' && <StitchingView images={capturedImages} stackedResults={stackedResults} grid={grid} settings={settings} />}
