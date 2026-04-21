@@ -65,16 +65,39 @@ class DNX64:
         Parameters:
             dll_path (str): Path to the DNX64.dll library file.
         """
-        self.dnx64 = ctypes.CDLL(dll_path)
+        import sys, os
+        sys.stderr.write(f"DNX64: loading {dll_path}...\n")
+        try:
+            if os.name == 'nt':
+                # Dino-Lite SDK typically uses stdcall (WinDLL)
+                self.dnx64 = ctypes.WinDLL(dll_path)
+            else:
+                self.dnx64 = ctypes.CDLL(dll_path)
+        except Exception as e:
+            sys.stderr.write(f"DNX64: failed to load DLL: {e}\n")
+            raise
+
+        sys.stderr.write("DNX64: total signatures to set up: " + str(len(METHOD_SIGNATURES)) + "\n")
         self.setup()
+        sys.stderr.write("DNX64: setup complete\n")
 
     def setup(self) -> None:
         """
         Set up the signatures for DNX64.dll methods using dictionary constant.
         """
+        import sys
         for method_name, (argtypes, restype) in METHOD_SIGNATURES.items():
-            getattr(self.dnx64, method_name).argtypes = argtypes
-            getattr(self.dnx64, method_name).restype = restype
+            try:
+                # sys.stderr.write(f"DNX64: setting up {method_name}...\n")
+                func = getattr(self.dnx64, method_name)
+                func.argtypes = argtypes
+                func.restype = restype
+            except AttributeError:
+                sys.stderr.write(f"DNX64: warning: {method_name} not found in DLL\n")
+                continue
+            except Exception as e:
+                sys.stderr.write(f"DNX64: error setting up {method_name}: {e}\n")
+                continue
 
     def Init(self) -> bool:
         """

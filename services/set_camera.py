@@ -42,9 +42,15 @@ def main():
     except Exception as e:
         log(f"CoInitializeEx failed (non-fatal): {e}")
 
-    dll_path = os.path.join(services_dir, 'DNX64.dll')
+    # Detect architecture bitness and choose correct DLL
+    import struct
+    bitness = 8 * struct.calcsize('P')
+    dll_name = 'DNX64.dll' if bitness == 64 else 'DNX32.dll'
+    dll_path = os.path.join(services_dir, dll_name)
+    log(f"Running in {bitness}-bit Python, using {dll_name}")
+
     if not os.path.exists(dll_path):
-        emit({"ok": False, "error": "DNX64.dll not found in services/"})
+        emit({"ok": False, "error": f"{dll_name} not found in services/"})
         return
 
     api_path = os.path.join(services_dir, 'DNX64_api.py')

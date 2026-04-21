@@ -57,19 +57,14 @@ async function startServer() {
   if (!pythonExec) {
     console.warn("Warning: Python 3 was not found or failed to initialize. Depth estimation will be disabled.");
   } else {
-    // Verify required libraries and install any that are missing
+    // Verify required libraries
     console.log("Verifying Python libraries...");
     try {
       execSync(`${pythonExec} -c "import numpy, cv2, pywt, scipy, matplotlib, PIL"`, { stdio: 'pipe' });
       console.log("Python libraries verified.");
     } catch {
-      console.log("Some Python libraries missing. Attempting installation...");
-      try {
-        execSync(`${pythonExec} -m pip install numpy opencv-python PyWavelets scipy matplotlib Pillow`, { stdio: 'inherit' });
-        console.log("Python libraries installed successfully.");
-      } catch (installErr) {
-        console.warn("Warning: Could not install Python libraries. Depth estimation may fail.", installErr);
-      }
+      console.warn("Warning: Some Python libraries (numpy, cv2, etc.) are missing. Depth estimation may fail.");
+      console.log("To fix, run: pip install numpy opencv-python PyWavelets scipy matplotlib Pillow");
     }
   }
 
