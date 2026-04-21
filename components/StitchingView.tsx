@@ -1,7 +1,7 @@
 
 import React, { useRef, useState, useMemo } from 'react';
 import { CapturedImage, GridDimensions, ScanSettings, StackResult } from '../types';
-import { Download, ZoomIn, ZoomOut, Combine, ArrowLeft, Loader2, RotateCcw } from 'lucide-react';
+import { Download, ZoomIn, ZoomOut, Combine, ArrowLeft, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import { getAlphabetLabel } from '../services/gcodeService';
 
 interface Props {
@@ -11,6 +11,8 @@ interface Props {
   settings: ScanSettings;
   title?: string;
   depthDecoration?: { minMm: number; maxMm: number };
+  stitchedMosaicUrl?: string | null;
+  setStitchedMosaicUrl?: (url: string | null) => void;
 }
 
 /**
@@ -124,14 +126,33 @@ function drawDepthDecorations(
   ctx.strokeRect(mosaicX, mosaicY, mW, mH);
 }
 
-const StitchingView: React.FC<Props> = ({ images, stackedResults, grid, settings, title = "Stitching Laboratory", depthDecoration }) => {
+const StitchingView: React.FC<Props> = ({ 
+  images, 
+  stackedResults, 
+  grid, 
+  settings, 
+  title = "Stitching Laboratory", 
+  depthDecoration,
+  stitchedMosaicUrl,
+  setStitchedMosaicUrl
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(0.8);
   const [isStitching, setIsStitching] = useState(false);
-  const [hasStitched, setHasStitched] = useState(false);
-  const [stitchedDataUrl, setStitchedDataUrl] = useState<string | null>(null);
+  const [localStitchedUrl, setLocalStitchedUrl] = useState<string | null>(null);
   const [stitchProgress, setStitchProgress] = useState(0);
   const [rotateFrames, setRotateFrames] = useState(false);
+
+  const stitchedDataUrl = stitchedMosaicUrl !== undefined ? stitchedMosaicUrl : localStitchedUrl;
+  const hasStitched = !!stitchedDataUrl;
+
+  const setInternalStitchedDataUrl = (url: string | null) => {
+    if (setStitchedMosaicUrl) {
+      setStitchedMosaicUrl(url);
+    } else {
+      setLocalStitchedUrl(url);
+    }
+  };
 
   const tileMap = useMemo(() => {
     const map: Record<string, { dataUrl: string; isOptimized: boolean }> = {};
@@ -327,7 +348,7 @@ const StitchingView: React.FC<Props> = ({ images, stackedResults, grid, settings
           ctx.putImageData(finalMosaic, 0, 0);
         }
         const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-        setStitchedDataUrl(dataUrl); setHasStitched(true);
+        setInternalStitchedDataUrl(dataUrl);
       }
     } catch (err) { console.error("Stitching failed:", err); }
     finally { setIsStitching(false); setStitchProgress(100); }
@@ -343,7 +364,7 @@ const StitchingView: React.FC<Props> = ({ images, stackedResults, grid, settings
         <div className="flex gap-3 items-center flex-wrap justify-end">
           {/* Rotation correction toggle — enables 180° correction for DinoCapture-rotated feeds */}
           <button
-            onClick={() => { setRotateFrames(r => !r); setHasStitched(false); setStitchedDataUrl(null); }}
+            onClick={() => { setRotateFrames(r => !r); setInternalStitchedDataUrl(null); }}
             title="Toggle 180° frame rotation correction (use when DinoCapture has digitally rotated the camera feed)"
             className={`px-5 py-3 rounded-2xl font-black text-xs border flex items-center gap-2 transition-all ${
               rotateFrames
@@ -357,7 +378,12 @@ const StitchingView: React.FC<Props> = ({ images, stackedResults, grid, settings
 
           {hasStitched ? (
             <>
-              <button onClick={() => { setHasStitched(false); setStitchedDataUrl(null); }} className="px-6 py-3 bg-slate-800 text-slate-400 rounded-2xl font-black text-xs border border-slate-700 hover:text-white transition-all flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> Reset</button>
+              <button 
+                onClick={() => setInternalStitchedDataUrl(null)} 
+                className="px-6 py-3 bg-rose-500/10 text-rose-500 rounded-2xl font-black text-xs border border-rose-500/20 hover:bg-rose-500 hover:text-white transition-all flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" /> Delete & Redo
+              </button>
               <button onClick={handleDownloadMosaic} className="px-6 py-3 bg-emerald-500 text-slate-900 rounded-2xl font-black text-xs shadow-xl flex items-center gap-2 hover:bg-emerald-400 transition-all"><Download className="w-4 h-4" /> Export Mosaic</button>
             </>
           ) : (

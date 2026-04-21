@@ -95,6 +95,7 @@ async function startServer() {
       return res.status(500).json({ supported: false, error: "Python not available" });
     }
     const scriptPath = path.join(process.cwd(), "services", "get_amr.py");
+    console.log(`[AMR] Spawning ${pythonExec} with ${scriptPath}`);
     const proc = spawn(pythonExec, [scriptPath]);
     let stdout = "";
     let stderr = "";

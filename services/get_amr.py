@@ -78,6 +78,10 @@ def main():
         return
 
     try:
+        log("calling GetVideoDeviceCount()…")
+        count = scope.GetVideoDeviceCount()
+        log(f"Detected {count} video devices")
+        
         log("calling SetVideoDeviceIndex(0)…")
         scope.SetVideoDeviceIndex(0)
         time.sleep(0.1)

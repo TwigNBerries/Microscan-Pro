@@ -143,6 +143,7 @@ const App: React.FC = () => {
 
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([]);
   const [manualCaptures, setManualCaptures] = useState<CapturedImage[]>([]);
+  const [stitchedMosaicUrl, setStitchedMosaicUrl] = useState<string | null>(null);
   const [stackedResults, setStackedResults] = useState<Record<string, StackResult>>({});
   const [depthResults, setDepthResults] = useState<Record<string, DepthResult>>({});
   const [isExporting, setIsExporting] = useState(false);
@@ -208,6 +209,7 @@ const App: React.FC = () => {
     if (confirm("DANGER: This will permanently delete all captured images, manual captures, stacked masters, and reset the stitching lab. Continue?")) {
       setCapturedImages([]);
       setManualCaptures([]);
+      setStitchedMosaicUrl(null);
       setStackedResults({});
       setDepthResults({});
       addLog("SYSTEM: Laboratory cleared. Memory reset.");
@@ -1042,7 +1044,7 @@ const App: React.FC = () => {
                         </div>
                         {!amrLive && amrError && (
                           <p className="text-[10px] font-bold text-slate-500 truncate" title={amrError}>
-                            Manual entry — microscope not detected
+                            {amrError === 'unsupported' ? 'Manual entry — microscope not detected' : `Error: ${amrError}`}
                           </p>
                         )}
                       </div>
@@ -1191,7 +1193,16 @@ const App: React.FC = () => {
             rotateFrames={rotateFrames}
           />
         )}
-        {activeTab === 'stitching' && <StitchingView images={capturedImages} stackedResults={stackedResults} grid={grid} settings={settings} />}
+        {activeTab === 'stitching' && (
+          <StitchingView 
+            images={capturedImages} 
+            stackedResults={stackedResults} 
+            grid={grid} 
+            settings={settings}
+            stitchedMosaicUrl={stitchedMosaicUrl}
+            setStitchedMosaicUrl={setStitchedMosaicUrl}
+          />
+        )}
         {activeTab === 'gallery' && (
           <div className="space-y-8 animate-in fade-in duration-500">
             <div className="flex justify-between items-end">
