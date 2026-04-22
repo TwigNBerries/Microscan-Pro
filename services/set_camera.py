@@ -17,6 +17,25 @@ def emit(payload: dict) -> None:
     sys.stdout.flush()
 
 
+def find_matching_dll(services_dir, target_bitness):
+    """Scan services dir for a DLL matching the target bitness (32 or 64)."""
+    import os, struct
+    for f in os.listdir(services_dir):
+        if f.lower().endswith('.dll') and f.lower().startswith('dnx'):
+            path = os.path.join(services_dir, f)
+            try:
+                with open(path, 'rb') as fd:
+                    header = fd.read(4096)
+                    if header[:2] == b'MZ':
+                        pe_offset = struct.unpack('<I', header[0x3C:0x40])[0]
+                        machine = struct.unpack('<H', header[pe_offset+4:pe_offset+6])[0]
+                        dll_bitness = 32 if machine == 0x014C else 64 if machine == 0x8664 else 0
+                        if dll_bitness == target_bitness:
+                            return path
+            except:
+                continue
+    return None
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--ae', type=int, required=True, choices=[0, 1],
@@ -28,6 +47,11 @@ def main():
     args = parser.parse_args()
 
     services_dir = os.path.dirname(os.path.abspath(__file__))
+    log(f"services_dir = {services_dir}")
+
+    import struct
+    bitness = 8 * struct.calcsize('P')
+    log(f"Running in {bitness}-bit Python")
 
     if hasattr(os, 'add_dll_directory'):
         try:
@@ -42,15 +66,15 @@ def main():
     except Exception as e:
         log(f"CoInitializeEx failed (non-fatal): {e}")
 
-    # Detect architecture bitness and choose correct DLL
-    import struct
-    bitness = 8 * struct.calcsize('P')
-    dll_name = 'DNX64.dll' if bitness == 64 else 'DNX32.dll'
-    dll_path = os.path.join(services_dir, dll_name)
-    log(f"Running in {bitness}-bit Python, using {dll_name}")
+    dll_path = find_matching_dll(services_dir, bitness)
+    if not dll_path:
+        dll_name = 'DNX64.dll' if bitness == 64 else 'DNX32.dll'
+        dll_path = os.path.join(services_dir, dll_name)
+    
+    log(f"Selected DLL: {os.path.basename(dll_path)}")
 
     if not os.path.exists(dll_path):
-        emit({"ok": False, "error": f"{dll_name} not found in services/"})
+        emit({"ok": False, "error": f"{os.path.basename(dll_path)} not found in services/"})
         return
 
     api_path = os.path.join(services_dir, 'DNX64_api.py')

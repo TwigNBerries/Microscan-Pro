@@ -65,16 +65,39 @@ class DNX64:
         Parameters:
             dll_path (str): Path to the DNX64.dll library file.
         """
-        import sys, os
+        import sys, os, struct
+        dll_name = os.path.basename(dll_path)
         sys.stderr.write(f"DNX64: loading {dll_path}...\n")
+        
+        # Probe DLL bitness
+        try:
+            with open(dll_path, 'rb') as f:
+                header = f.read(4096)
+                if header[:2] == b'MZ':
+                    pe_offset = struct.unpack('<I', header[0x3C:0x40])[0]
+                    machine = struct.unpack('<H', header[pe_offset+4:pe_offset+6])[0]
+                    if machine == 0x014c:
+                        sys.stderr.write(f"DNX64: {dll_name} is a 32-bit (x86) DLL\n")
+                    elif machine == 0x8664:
+                        sys.stderr.write(f"DNX64: {dll_name} is a 64-bit (x64) DLL\n")
+                    else:
+                        sys.stderr.write(f"DNX64: {dll_name} machine type: 0x{machine:04X}\n")
+        except Exception as probe_err:
+            sys.stderr.write(f"DNX64: DLL bitness probe failed: {probe_err}\n")
+
         try:
             if os.name == 'nt':
                 # Dino-Lite SDK typically uses stdcall (WinDLL)
-                self.dnx64 = ctypes.WinDLL(dll_path)
+                try:
+                    sys.stderr.write(f"DNX64: attempting WinDLL (stdcall) load...\n")
+                    self.dnx64 = ctypes.WinDLL(dll_path)
+                except Exception as win_err:
+                    sys.stderr.write(f"DNX64: WinDLL load failed: {win_err}. Attempting CDLL fallback...\n")
+                    self.dnx64 = ctypes.CDLL(dll_path)
             else:
                 self.dnx64 = ctypes.CDLL(dll_path)
         except Exception as e:
-            sys.stderr.write(f"DNX64: failed to load DLL: {e}\n")
+            sys.stderr.write(f"DNX64: total failure to load DLL: {e}\n")
             raise
 
         sys.stderr.write("DNX64: total signatures to set up: " + str(len(METHOD_SIGNATURES)) + "\n")
