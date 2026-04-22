@@ -1,0 +1,6 @@
+# Mark DLLs and other binaries as binary data to prevent line-ending corruption
+*.dll binary
+*.lib binary
+*.exe binary
+*.so binary
+*.pyc binary

@@ -60,11 +60,12 @@ def main():
         except Exception as e:
             log(f"add_dll_directory failed: {e}")
 
-    try:
-        hr = ctypes.windll.ole32.CoInitializeEx(None, 0x2)
-        log(f"CoInitializeEx hr=0x{hr & 0xFFFFFFFF:08X}")
-    except Exception as e:
-        log(f"CoInitializeEx failed (non-fatal): {e}")
+    if os.name == 'nt':
+        try:
+            hr = ctypes.windll.ole32.CoInitializeEx(None, 0x2)
+            log(f"CoInitializeEx hr=0x{hr & 0xFFFFFFFF:08X}")
+        except Exception as e:
+            log(f"CoInitializeEx failed (non-fatal): {e}")
 
     dll_path = find_matching_dll(services_dir, bitness)
     if not dll_path:
