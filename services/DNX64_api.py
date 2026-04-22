@@ -87,14 +87,17 @@ class DNX64:
 
         try:
             if os.name == 'nt':
+                try:
+                    ctypes.windll.kernel32.SetDllDirectoryW(os.path.abspath(os.path.dirname(dll_path)))
+                except:
+                    pass
                 # Dino-Lite SDK typically uses stdcall (WinDLL)
                 try:
                     sys.stderr.write(f"DNX64: Attempting load (WinDLL/stdcall)...\n")
                     self.dnx64 = ctypes.WinDLL(dll_path)
                 except Exception as win_err:
                     if "not a valid Win32 application" in str(win_err):
-                         sys.stderr.write(f"DNX64: CRITICAL ERROR: {dll_name} is corrupted or the wrong bitness (WinError 193).\n")
-                         sys.stderr.write(f"DNX64: This usually happens if Git converted binary line endings. RE-COPY {dll_name} from the original SDK.\n")
+                         sys.stderr.write(f"DNX64: ERROR: {dll_name} has invalid bitness OR its dependency (libusbK.dll) has invalid bitness.\n")
                     
                     sys.stderr.write(f"DNX64: WinDLL load failed: {win_err}. Attempting CDLL fallback...\n")
                     self.dnx64 = ctypes.CDLL(dll_path)
