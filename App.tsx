@@ -226,30 +226,74 @@ const App: React.FC = () => {
     addLog(`DEPTH: Cleared analysis for ${label}. Ready for recalculation.`);
   }, []);
 
+  const stackingInProgressRef = useRef<Set<string>>(new Set());
+  const stackingQueueRef = useRef<string[]>([]);
+  const isStackingWorkerRunningRef = useRef(false);
+
+  const groupedCapturedImagesRef = useRef(groupedCapturedImages);
+  useEffect(() => {
+    groupedCapturedImagesRef.current = groupedCapturedImages;
+  }, [groupedCapturedImages]);
+
+  const processStackingQueue = async () => {
+    if (isStackingWorkerRunningRef.current || stackingQueueRef.current.length === 0) return;
+    
+    isStackingWorkerRunningRef.current = true;
+    while (stackingQueueRef.current.length > 0) {
+      const label = stackingQueueRef.current.shift()!;
+      const images = groupedCapturedImagesRef.current[label];
+      if (!images || images.length === 0) continue;
+
+      setStackedResults(prev => ({
+        ...prev,
+        [label]: { label, dataUrl: "", isProcessing: true, sliceCount: images.length }
+      }));
+
+      addLog(`STACKER: Merging ${images.length} layers for ${label} (${stackingQueueRef.current.length} left)...`);
+      try {
+        const result = await performFocusStack(images.map(img => img.dataUrl));
+        setStackedResults(prev => ({
+          ...prev,
+          [label]: { ...prev[label], dataUrl: result, isProcessing: false }
+        }));
+      } catch (err) {
+        addLog(`STACKER ERROR: Failed ${label}. ${err instanceof Error ? err.message : String(err)}`);
+        setStackedResults(prev => {
+          const next = { ...prev };
+          delete next[label];
+          return next;
+        });
+      } finally {
+        stackingInProgressRef.current.delete(label);
+      }
+    }
+    isStackingWorkerRunningRef.current = false;
+  };
+
+  const handleTriggerStack = (label: string) => {
+    if (stackingInProgressRef.current.has(label)) return;
+    stackingInProgressRef.current.add(label);
+    stackingQueueRef.current.push(label);
+    processStackingQueue();
+  };
+
   useEffect(() => {
     (Object.entries(groupedCapturedImages) as [string, CapturedImage[]][]).forEach(([label, images]) => {
-      if (images.length === settings.zStackCount) {
-        if (!stackedResults[label]) {
-          handleTriggerStack(label, images);
+      const result = stackedResults[label];
+      const isProcessing = result?.isProcessing;
+      const hasData = !!result?.dataUrl;
+
+      if (!isProcessing && !hasData && !stackingInProgressRef.current.has(label)) {
+        const shouldTrigger = isScanning 
+          ? images.length === settings.zStackCount 
+          : images.length > 0;
+
+        if (shouldTrigger) {
+          handleTriggerStack(label);
         }
       }
     });
-  }, [groupedCapturedImages, settings.zStackCount, stackedResults]);
-
-  const handleTriggerStack = async (label: string, images: CapturedImage[]) => {
-    setStackedResults(prev => ({
-      ...prev,
-      [label]: { label, dataUrl: "", isProcessing: true, sliceCount: images.length }
-    }));
-
-    addLog(`STACKER: Merging Z-layers for ${label}...`);
-    const result = await performFocusStack(images.map(img => img.dataUrl));
-    
-    setStackedResults(prev => ({
-      ...prev,
-      [label]: { ...prev[label], dataUrl: result, isProcessing: false }
-    }));
-  };
+  }, [groupedCapturedImages, settings.zStackCount, stackedResults, isScanning]);
 
   const handleTriggerDepth = async (label: string, images: CapturedImage[], method: DepthMethod = 'laplacian') => {
     setFilteredResults(prev => {
