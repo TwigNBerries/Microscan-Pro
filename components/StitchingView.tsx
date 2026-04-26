@@ -3,6 +3,7 @@ import React, { useRef, useState, useMemo } from 'react';
 import { CapturedImage, GridDimensions, ScanSettings, StackResult } from '../types';
 import { Download, ZoomIn, ZoomOut, Combine, ArrowLeft, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import { getAlphabetLabel } from '../services/gcodeService';
+import { estimateShiftHorizontal, estimateShiftVertical } from '../services/registrationService';
 
 interface Props {
   images: CapturedImage[];
@@ -281,6 +282,111 @@ const StitchingView: React.FC<Props> = ({
     return result;
   };
 
+  const blendHorizontalWithShift = (left: ImageData, right: ImageData, overlapPercent: number, dx: number, dy: number): ImageData => {
+    const overlapWidth = Math.round(right.width * (overlapPercent / 100));
+    const xOffset = left.width - overlapWidth + dx;
+    const yOffset = dy;
+
+    // Calculate output dimensions
+    const minX = Math.min(0, xOffset);
+    const maxX = Math.max(left.width, xOffset + right.width);
+    const minY = Math.min(0, yOffset);
+    const maxY = Math.max(left.height, yOffset + right.height);
+
+    const outWidth = maxX - minX;
+    const outHeight = maxY - minY;
+    
+    const result = new ImageData(outWidth, outHeight);
+    const L = left.data; const R = right.data; const D = result.data;
+
+    const lShiftX = -minX; const lShiftY = -minY;
+    const rShiftX = xOffset - minX; const rShiftY = yOffset - minY;
+
+    const featherStart = rShiftX;
+    const featherEnd = lShiftX + left.width;
+    const featherWidth = featherEnd - featherStart;
+
+    for (let y = 0; y < outHeight; y++) {
+      for (let x = 0; x < outWidth; x++) {
+        const destIdx = (y * outWidth + x) * 4;
+        const lx = x - lShiftX; const ly = y - lShiftY;
+        const rx = x - rShiftX; const ry = y - rShiftY;
+
+        const inL = lx >= 0 && lx < left.width && ly >= 0 && ly < left.height;
+        const inR = rx >= 0 && rx < right.width && ry >= 0 && ry < right.height;
+
+        if (inL && inR) {
+          const alpha = featherWidth > 0 ? (x - featherStart) / featherWidth : 0.5;
+          const lIdx = (ly * left.width + lx) * 4;
+          const rIdx = (ry * right.width + rx) * 4;
+          D[destIdx] = Math.round(L[lIdx] * (1 - alpha) + R[rIdx] * alpha);
+          D[destIdx+1] = Math.round(L[lIdx+1] * (1 - alpha) + R[rIdx+1] * alpha);
+          D[destIdx+2] = Math.round(L[lIdx+2] * (1 - alpha) + R[rIdx+2] * alpha);
+          D[destIdx+3] = 255;
+        } else if (inL) {
+          const srcIdx = (ly * left.width + lx) * 4;
+          D[destIdx] = L[srcIdx]; D[destIdx+1] = L[srcIdx+1]; D[destIdx+2] = L[srcIdx+2]; D[destIdx+3] = 255;
+        } else if (inR) {
+          const srcIdx = (ry * right.width + rx) * 4;
+          D[destIdx] = R[srcIdx]; D[destIdx+1] = R[srcIdx+1]; D[destIdx+2] = R[srcIdx+2]; D[destIdx+3] = 255;
+        }
+      }
+    }
+    return result;
+  };
+
+  const blendVerticalWithShift = (top: ImageData, bottom: ImageData, overlapPercent: number, dx: number, dy: number): ImageData => {
+    const overlapHeight = Math.round(bottom.height * (overlapPercent / 100));
+    const xOffset = dx;
+    const yOffset = top.height - overlapHeight + dy;
+
+    const minX = Math.min(0, xOffset);
+    const maxX = Math.max(top.width, xOffset + bottom.width);
+    const minY = Math.min(0, yOffset);
+    const maxY = Math.max(top.height, yOffset + bottom.height);
+
+    const outWidth = maxX - minX;
+    const outHeight = maxY - minY;
+
+    const result = new ImageData(outWidth, outHeight);
+    const T = top.data; const B = bottom.data; const D = result.data;
+
+    const tShiftX = -minX; const tShiftY = -minY;
+    const bShiftX = xOffset - minX; const bShiftY = yOffset - minY;
+
+    const featherStart = bShiftY;
+    const featherEnd = tShiftY + top.height;
+    const featherHeight = featherEnd - featherStart;
+
+    for (let y = 0; y < outHeight; y++) {
+      for (let x = 0; x < outWidth; x++) {
+        const destIdx = (y * outWidth + x) * 4;
+        const tx = x - tShiftX; const ty = y - tShiftY;
+        const bx = x - bShiftX; const by = y - bShiftY;
+
+        const inT = tx >= 0 && tx < top.width && ty >= 0 && ty < top.height;
+        const inB = bx >= 0 && bx < bottom.width && by >= 0 && by < bottom.height;
+
+        if (inT && inB) {
+          const alpha = featherHeight > 0 ? (y - featherStart) / featherHeight : 0.5;
+          const tIdx = (ty * top.width + tx) * 4;
+          const bIdx = (by * bottom.width + bx) * 4;
+          D[destIdx] = Math.round(T[tIdx] * (1 - alpha) + B[bIdx] * alpha);
+          D[destIdx+1] = Math.round(T[tIdx+1] * (1 - alpha) + B[bIdx+1] * alpha);
+          D[destIdx+2] = Math.round(T[tIdx+2] * (1 - alpha) + B[bIdx+2] * alpha);
+          D[destIdx+3] = 255;
+        } else if (inT) {
+          const srcIdx = (ty * top.width + tx) * 4;
+          D[destIdx] = T[srcIdx]; D[destIdx+1] = T[srcIdx+1]; D[destIdx+2] = T[srcIdx+2]; D[destIdx+3] = 255;
+        } else if (inB) {
+          const srcIdx = (by * bottom.width + bx) * 4;
+          D[destIdx] = B[srcIdx]; D[destIdx+1] = B[srcIdx+1]; D[destIdx+2] = B[srcIdx+2]; D[destIdx+3] = 255;
+        }
+      }
+    }
+    return result;
+  };
+
   const executeHierarchicalStitch = async () => {
     if (Object.keys(tileMap).length === 0) return;
     setIsStitching(true);
@@ -291,14 +397,23 @@ const StitchingView: React.FC<Props> = ({
         setStitchProgress(Math.floor((r / grid.rows) * 50));
         const rowLabel = getAlphabetLabel(r);
         let currentRowMosaic: ImageData | null = null;
+        let lastTile: ImageData | null = null;
+
         for (let c = 0; c < grid.cols; c++) {
           const label = `${rowLabel}${c + 1}`;
           const tileData = tileMap[label];
           if (!tileData) continue;
-          // Pass rotateFrames into getImageData so each tile is corrected before blending
+          
           const currentTileImageData = await getImageData(tileData.dataUrl, rotateFrames);
-          if (!currentRowMosaic) currentRowMosaic = currentTileImageData;
-          else currentRowMosaic = blendHorizontal(currentRowMosaic, currentTileImageData, settings.overlapPercent);
+          
+          if (!currentRowMosaic) {
+            currentRowMosaic = currentTileImageData;
+            lastTile = currentTileImageData;
+          } else {
+            const shift = await estimateShiftHorizontal(lastTile!, currentTileImageData, settings.overlapPercent);
+            currentRowMosaic = blendHorizontalWithShift(currentRowMosaic, currentTileImageData, settings.overlapPercent, shift.dx, shift.dy);
+            lastTile = currentTileImageData;
+          }
         }
         if (currentRowMosaic) rowMosaics.push(currentRowMosaic);
       }
@@ -306,7 +421,8 @@ const StitchingView: React.FC<Props> = ({
       let finalMosaic = rowMosaics[0];
       for (let i = 1; i < rowMosaics.length; i++) {
         setStitchProgress(50 + Math.floor((i / rowMosaics.length) * 50));
-        finalMosaic = blendVertical(finalMosaic, rowMosaics[i], settings.overlapPercent);
+        const shift = await estimateShiftVertical(finalMosaic, rowMosaics[i], settings.overlapPercent);
+        finalMosaic = blendVerticalWithShift(finalMosaic, rowMosaics[i], settings.overlapPercent, shift.dx, shift.dy);
       }
       const canvas = canvasRef.current;
       if (canvas) {
