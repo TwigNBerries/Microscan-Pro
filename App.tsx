@@ -154,6 +154,7 @@ const App: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const zipInputRef = useRef<HTMLInputElement>(null);
   const masterQueueRef = useRef<QueueItem[]>([]);
   const lineBufferRef = useRef<string>("");
   const totalQueueSizeRef = useRef<number>(0);
@@ -612,30 +613,37 @@ const App: React.FC = () => {
     if (!files || files.length === 0) return;
 
     const newImages: CapturedImage[] = [];
-    addLog(`SYSTEM: Importing ${files.length} files...`);
+    addLog(`SYSTEM: Scanning ${files.length} items...`);
 
     try {
-      for (const file of Array.from(files)) {
+      const fileList = Array.from(files);
+      
+      // 1. Look for metadata.json first
+      let metadata: any = null;
+      const metadataFile = fileList.find(f => f.name === 'metadata.json');
+      if (metadataFile) {
+        const text = await metadataFile.text();
+        metadata = JSON.parse(text);
+        if (metadata.settings) setSettings(metadata.settings);
+        addLog("SYSTEM: Applied capture parameters from metadata.json");
+      }
+
+      for (const file of fileList) {
+        // Handle ZIP files as before
         if (file.name.endsWith('.zip')) {
           const zip = await JSZip.loadAsync(file);
-          
-          // Check for metadata.json
-          let metadata: any = null;
+          let zipMetadata: any = null;
           if (zip.files["metadata.json"]) {
             const metaStr = await zip.files["metadata.json"].async("string");
-            metadata = JSON.parse(metaStr);
-            if (metadata.settings) setSettings(metadata.settings);
-            addLog("SYSTEM: Applied scan settings from metadata.");
+            zipMetadata = JSON.parse(metaStr);
+            if (zipMetadata.settings) setSettings(zipMetadata.settings);
           }
 
           const imageFiles = Object.keys(zip.files).filter(name => !zip.files[name].dir && /\.(jpg|jpeg|png)$/i.test(name));
-          
           for (const name of imageFiles) {
             const content = await zip.files[name].async('base64');
             const dataUrl = `data:image/jpeg;base64,${content}`;
-            
-            // Try to find in metadata
-            const metaEntry = metadata?.images?.find((img: any) => img.filename === name);
+            const metaEntry = zipMetadata?.images?.find((img: any) => img.filename === name);
             
             if (metaEntry) {
               newImages.push({
@@ -651,7 +659,6 @@ const App: React.FC = () => {
               const fileName = pathParts[pathParts.length - 1];
               const labelMatch = name.match(/Stack_([A-Z0-9]+)/i) || fileName.match(/^([A-Z0-9]+)_/i);
               const zMatch = fileName.match(/_(\d+)\./);
-              
               const label = labelMatch ? labelMatch[1] : 'IMPORTED';
               const z = zMatch ? parseInt(zMatch[1]) : 0;
               
@@ -665,7 +672,9 @@ const App: React.FC = () => {
               });
             }
           }
-        } else if (file.type.startsWith('image/')) {
+        } 
+        // Handle direct image files (potentially from directory selection)
+        else if (file.type.startsWith('image/')) {
           const reader = new FileReader();
           const dataUrl = await new Promise<string>((resolve) => {
             reader.onload = (e) => resolve(e.target?.result as string);
@@ -673,31 +682,55 @@ const App: React.FC = () => {
           });
 
           const fileName = file.name;
-          const labelMatch = fileName.match(/^([A-Z0-9]+)_/i);
-          const zMatch = fileName.match(/_(\d+)\./);
+          const relativePath = (file as any).webkitRelativePath || fileName;
           
-          const label = labelMatch ? labelMatch[1] : 'IMPORTED';
-          const z = zMatch ? parseInt(zMatch[1]) : 0;
+          // Try to find in root-level metadata first
+          const metaEntry = metadata?.images?.find((img: any) => 
+            img.filename === relativePath || 
+            img.filename.endsWith(fileName) || 
+            relativePath.endsWith(img.filename)
+          );
 
-          newImages.push({
-            id: Math.random().toString(36).substr(2, 9),
-            name: fileName.split('.')[0],
-            label,
-            dataUrl,
-            timestamp: Date.now(),
-            gridPos: { r: 0, c: 0, z }
-          });
+          if (metaEntry) {
+            newImages.push({
+              id: Math.random().toString(36).substr(2, 9),
+              name: metaEntry.name,
+              label: metaEntry.label,
+              dataUrl,
+              timestamp: metaEntry.timestamp || Date.now(),
+              gridPos: metaEntry.gridPos
+            });
+          } else {
+            // Path-based heuristic: look for Stack_XX in the relative path
+            const labelMatch = relativePath.match(/Stack_([A-Z0-9]+)/i) || fileName.match(/^([A-Z0-9]+)_/i);
+            const zMatch = fileName.match(/_(\d+)\./);
+            
+            const label = labelMatch ? labelMatch[1] : 'IMPORTED';
+            const z = zMatch ? parseInt(zMatch[1]) : 0;
+
+            newImages.push({
+              id: Math.random().toString(36).substr(2, 9),
+              name: fileName.split('.')[0],
+              label,
+              dataUrl,
+              timestamp: Date.now(),
+              gridPos: { r: 0, c: 0, z }
+            });
+          }
         }
       }
 
       if (newImages.length > 0) {
+        // Sort images by timestamp/name within labels to help stacking logic if needed
+        newImages.sort((a, b) => a.timestamp - b.timestamp);
         setCapturedImages(prev => [...newImages, ...prev]);
-        addLog(`SYSTEM: Successfully imported ${newImages.length} images.`);
+        addLog(`SYSTEM: Successfully imported ${newImages.length} frames.`);
       }
     } catch (err) {
       addLog(`SYSTEM ERROR: Import failed. ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
+      if (zipInputRef.current) zipInputRef.current.value = '';
     }
   };
 
@@ -1208,15 +1241,24 @@ const App: React.FC = () => {
             <div className="flex justify-between items-end">
               <div><h2 className="text-2xl font-black text-white">Capture Library</h2><p className="text-xs text-slate-500 uppercase tracking-widest mt-1">Managed Z-Stack Repositories</p></div>
               <div className="flex gap-4">
-                <button onClick={() => fileInputRef.current?.click()} className="px-6 py-3 bg-slate-800 text-white border border-slate-700 rounded-2xl font-black text-xs hover:bg-slate-700 transition-all flex items-center gap-2">
-                  <FileUp className="w-4 h-4" /> Import Scan Data
+                <button onClick={() => fileInputRef.current?.click()} className="px-6 py-3 bg-slate-800 text-white border border-slate-700 rounded-2xl font-black text-xs hover:bg-slate-700 transition-all flex items-center gap-2" title="Select a project folder containing Stack_XX subfolders">
+                  <FileUp className="w-4 h-4" /> Import Project Folder
                 </button>
                 <input 
                   type="file" 
                   ref={fileInputRef} 
                   className="hidden" 
-                  accept=".zip,image/*" 
-                  multiple 
+                  {...({ webkitdirectory: "", directory: "" } as any)}
+                  onChange={handleImportFiles} 
+                />
+                <button onClick={() => zipInputRef.current?.click()} className="px-6 py-3 bg-slate-800/50 text-slate-300 border border-slate-700 rounded-2xl font-black text-xs hover:bg-slate-700 transition-all flex items-center gap-2" title="Import a previously exported project ZIP">
+                  <FileArchive className="w-4 h-4" /> Import Project ZIP
+                </button>
+                <input 
+                  type="file" 
+                  ref={zipInputRef} 
+                  className="hidden" 
+                  accept=".zip"
                   onChange={handleImportFiles} 
                 />
                 <button onClick={handleDownloadAllStructured} className="px-6 py-3 bg-cyan-500 text-slate-900 rounded-2xl font-black text-xs shadow-xl active:scale-95 transition-all"><FolderDown className="w-4 h-4 inline mr-2" /> Download Project ZIP</button>
