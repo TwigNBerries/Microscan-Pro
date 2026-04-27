@@ -68,6 +68,28 @@ async function startServer() {
     }
   }
 
+  let isMicroscopeBusy = false;
+  const microscopeQueue: (() => void)[] = [];
+
+  const acquireMicroscope = async () => {
+    if (!isMicroscopeBusy) {
+      isMicroscopeBusy = true;
+      return;
+    }
+    return new Promise<void>((resolve) => {
+      microscopeQueue.push(resolve);
+    });
+  };
+
+  const releaseMicroscope = () => {
+    if (microscopeQueue.length > 0) {
+      const next = microscopeQueue.shift();
+      if (next) next();
+    } else {
+      isMicroscopeBusy = false;
+    }
+  };
+
   // API Routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
@@ -75,20 +97,13 @@ async function startServer() {
 
   // --------------------------------------------------------------------------
   // Microscope AMR – per-request Python spawn.
-  //
-  // We tried keeping a long-running daemon, but the DNX64 DLL caches GetAMR
-  // results inside a single Init() session — every read after the first one
-  // returns the same value until Init() is called again.  So we're back to
-  // the original model: each request spawns get_amr.py fresh, which pays a
-  // one-time ~2 s Init() cost in exchange for an actual live reading.
-  //
-  // The client polls this endpoint on a timer with its own in-flight guard,
-  // so the UI still updates automatically — just at roughly 2 s cadence.
   // --------------------------------------------------------------------------
-  app.get("/api/microscope/amr", (req, res) => {
+  app.get("/api/microscope/amr", async (req, res) => {
     if (!pythonExec) {
       return res.status(500).json({ supported: false, error: "Python not available" });
     }
+
+    await acquireMicroscope();
     const scriptPath = path.join(process.cwd(), "services", "get_amr.py");
     console.log(`[AMR] Spawning ${pythonExec} with ${scriptPath}`);
     const proc = spawn(pythonExec, [scriptPath]);
@@ -99,7 +114,6 @@ async function startServer() {
     proc.stderr.on("data", (d) => {
       const chunk = d.toString();
       stderr += chunk;
-      // Surface Python diagnostic lines in the server console.
       process.stderr.write(chunk);
     });
 
@@ -107,16 +121,15 @@ async function startServer() {
       console.warn("[AMR] script timed out after 15 s, killing");
       proc.kill();
       if (!res.headersSent) {
+        releaseMicroscope();
         res.status(504).json({ supported: false, error: "Microscope query timed out" });
       }
     }, 15000);
 
     proc.on("close", () => {
       clearTimeout(timer);
+      releaseMicroscope();
       if (res.headersSent) return;
-      // DNX64 prints its own stdout junk ("U3Open: USB\…") alongside our
-      // JSON payload, so extract the last line that looks like a JSON
-      // object rather than parsing the whole buffer.
       const jsonLine = stdout
         .split(/\r?\n/)
         .map((l) => l.trim())
@@ -138,10 +151,11 @@ async function startServer() {
   // -------------------------------------------------------------------------
   // Camera controls — read state
   // -------------------------------------------------------------------------
-  app.get("/api/microscope/camera", (req, res) => {
+  app.get("/api/microscope/camera", async (req, res) => {
     if (!pythonExec) {
       return res.status(500).json({ ok: false, error: "Python not available" });
     }
+    await acquireMicroscope();
     const scriptPath = path.join(process.cwd(), "services", "get_camera_state.py");
     const proc = spawn(pythonExec, [scriptPath]);
     let stdout = "";
@@ -158,12 +172,14 @@ async function startServer() {
       console.warn("[CAMERA] get_camera_state.py timed out after 15s");
       proc.kill();
       if (!res.headersSent) {
+        releaseMicroscope();
         res.status(504).json({ ok: false, error: "Camera state query timed out" });
       }
     }, 15000);
 
     proc.on("close", () => {
       clearTimeout(timer);
+      releaseMicroscope();
       if (res.headersSent) return;
       const jsonLine = stdout
         .split(/\r?\n/)
@@ -183,7 +199,7 @@ async function startServer() {
   // -------------------------------------------------------------------------
   // Camera controls — apply settings
   // -------------------------------------------------------------------------
-  app.post("/api/microscope/camera", (req, res) => {
+  app.post("/api/microscope/camera", async (req, res) => {
     if (!pythonExec) {
       return res.status(500).json({ ok: false, error: "Python not available" });
     }
@@ -193,9 +209,10 @@ async function startServer() {
       gain: number;
     };
     if (typeof autoExposure !== "boolean" || typeof exposure !== "number" || typeof gain !== "number") {
-      return res.status(400).json({ ok: false, error: "Invalid parameters: expected { autoExposure: boolean, exposure: number, gain: number }" });
+      return res.status(400).json({ ok: false, error: "Invalid parameters" });
     }
 
+    await acquireMicroscope();
     const scriptPath = path.join(process.cwd(), "services", "set_camera.py");
     const proc = spawn(pythonExec, [
       scriptPath,
@@ -214,15 +231,16 @@ async function startServer() {
     });
 
     const timer = setTimeout(() => {
-      console.warn("[CAMERA] set_camera.py timed out after 15s");
       proc.kill();
       if (!res.headersSent) {
+        releaseMicroscope();
         res.status(504).json({ ok: false, error: "Camera set timed out" });
       }
     }, 15000);
 
     proc.on("close", () => {
       clearTimeout(timer);
+      releaseMicroscope();
       if (res.headersSent) return;
       const jsonLine = stdout
         .split(/\r?\n/)
@@ -232,12 +250,123 @@ async function startServer() {
       if (jsonLine) {
         try { res.json(JSON.parse(jsonLine)); return; } catch { /* fall through */ }
       }
-      res.status(500).json({
-        ok: false,
-        error: stderr.trim().split("\n").pop() || "Invalid response from set_camera.py",
-      });
+      res.status(500).json({ ok: false, error: "Invalid response from set_camera.py" });
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Exposure controls — read state (Luma/ISO)
+  // -------------------------------------------------------------------------
+  app.get("/api/microscope/exposure", async (req, res) => {
+    if (!pythonExec) return res.status(500).json({ ok: false, error: "Python not available" });
+    await acquireMicroscope();
+    const scriptPath = path.join(process.cwd(), "services", "get_exposure.py");
+    const proc = spawn(pythonExec, [scriptPath]);
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (d) => { stdout += d.toString(); });
+    proc.stderr.on("data", (d) => { stderr += d.toString(); process.stderr.write(d.toString()); });
+    const timer = setTimeout(() => { proc.kill(); if (!res.headersSent) { releaseMicroscope(); res.status(504).json({ ok: false, error: "Exposure query timed out" }); } }, 15000);
+    proc.on("close", () => {
+      clearTimeout(timer);
+      releaseMicroscope();
+      if (res.headersSent) return;
+      const jsonLine = stdout.split(/\r?\n/).map(l => l.trim()).filter(l => l.startsWith("{") && l.endsWith("}")).pop();
+      if (jsonLine) { try { res.json(JSON.parse(jsonLine)); return; } catch {} }
+      res.status(500).json({ ok: false, error: stderr.trim().split("\n").pop() || "Invalid response from get_exposure.py" });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Exposure controls — apply settings
+  // -------------------------------------------------------------------------
+  app.post("/api/microscope/exposure", async (req, res) => {
+    if (!pythonExec) return res.status(500).json({ ok: false, error: "Python not available" });
+    const { autoExposure, aeTarget, isoRaw } = req.body;
+    await acquireMicroscope();
+    const scriptPath = path.join(process.cwd(), "services", "set_exposure.py");
+    const args = [scriptPath];
+    if (typeof autoExposure === 'boolean') args.push("--ae", autoExposure ? "1" : "0");
+    if (typeof aeTarget === 'number') args.push("--ae-target", String(Math.round(aeTarget)));
+    if (typeof isoRaw === 'number') args.push("--iso", String(Math.round(isoRaw)));
+
+    const proc = spawn(pythonExec, args);
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (d) => { stdout += d.toString(); });
+    proc.stderr.on("data", (d) => { stderr += d.toString(); process.stderr.write(d.toString()); });
+    const timer = setTimeout(() => { proc.kill(); if (!res.headersSent) { releaseMicroscope(); res.status(504).json({ ok: false, error: "Exposure set timed out" }); } }, 15000);
+    proc.on("close", () => {
+      clearTimeout(timer);
+      releaseMicroscope();
+      if (res.headersSent) return;
+      const jsonLine = stdout.split(/\r?\n/).map(l => l.trim()).filter(l => l.startsWith("{") && l.endsWith("}")).pop();
+      if (jsonLine) { try { res.json(JSON.parse(jsonLine)); return; } catch {} }
+      res.status(500).json({ ok: false, error: "Invalid response from set_exposure.py" });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // LED controls — read capabilities
+  // -------------------------------------------------------------------------
+  app.get("/api/microscope/leds", async (req, res) => {
+    if (!pythonExec) return res.status(500).json({ ok: false, error: "Python not available" });
+    await acquireMicroscope();
+    const scriptPath = path.join(process.cwd(), "services", "get_leds.py");
+    const proc = spawn(pythonExec, [scriptPath]);
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (d) => { stdout += d.toString(); });
+    proc.stderr.on("data", (d) => { stderr += d.toString(); process.stderr.write(d.toString()); });
+    const timer = setTimeout(() => { proc.kill(); if (!res.headersSent) { releaseMicroscope(); res.status(504).json({ ok: false, error: "LED query timed out" }); } }, 15000);
+    proc.on("close", () => {
+      clearTimeout(timer);
+      releaseMicroscope();
+      if (res.headersSent) return;
+      const jsonLine = stdout.split(/\r?\n/).map(l => l.trim()).filter(l => l.startsWith("{") && l.endsWith("}")).pop();
+      if (jsonLine) { try { res.json(JSON.parse(jsonLine)); return; } catch {} }
+      res.status(500).json({ ok: false, error: stderr.trim().split("\n").pop() || "Invalid response from get_leds.py" });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // LED controls — apply settings
+  // -------------------------------------------------------------------------
+  app.post("/api/microscope/leds", async (req, res) => {
+    if (!pythonExec) return res.status(500).json({ ok: false, error: "Python not available" });
+    const { flcLevel, flcSwitch, eflc } = req.body;
+    await acquireMicroscope();
+    const scriptPath = path.join(process.cwd(), "services", "set_leds.py");
+    const args = [scriptPath];
+    if (typeof flcLevel === 'number') { args.push("--flc-level", String(flcLevel)); }
+    if (typeof flcSwitch === 'number') { args.push("--flc-switch", String(flcSwitch)); }
+    
+    // Handle eflc array if present (per-quadrant brightness for EdgePLUS)
+    if (Array.isArray(eflc)) {
+      eflc.forEach((item: any) => {
+        if (typeof item.quadrant === 'number' && typeof item.value === 'number') {
+          args.push("--eflc-idx", String(item.quadrant), "--eflc-value", String(item.value));
+        }
+      });
+    }
+
+    const proc = spawn(pythonExec, args);
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (d) => { stdout += d.toString(); });
+    proc.stderr.on("data", (d) => { stderr += d.toString(); process.stderr.write(d.toString()); });
+    const timer = setTimeout(() => { proc.kill(); if (!res.headersSent) { releaseMicroscope(); res.status(504).json({ ok: false, error: "LED set timed out" }); } }, 15000);
+    proc.on("close", () => {
+      clearTimeout(timer);
+      releaseMicroscope();
+      if (res.headersSent) return;
+      const jsonLine = stdout.split(/\r?\n/).map(l => l.trim()).filter(l => l.startsWith("{") && l.endsWith("}")).pop();
+      if (jsonLine) { try { res.json(JSON.parse(jsonLine)); return; } catch {} }
+      res.status(500).json({ ok: false, error: "Invalid response from set_leds.py" });
+    });
+  });
+
+
 
   // Depth Estimation API
   app.post("/api/depth/compute", async (req, res) => {
