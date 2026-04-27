@@ -41,7 +41,8 @@ import {
   HelpCircle,
   Map,
   FileUp,
-  Sliders
+  Sliders,
+  Lightbulb
 } from 'lucide-react';
 
 interface CameraControlState {
@@ -52,6 +53,32 @@ interface CameraControlState {
   gain: number;
   gainMin: number;
   gainMax: number;
+  // Luma (AE target) — DinoCapture's "Luma" slider, only meaningful when AE on.
+  aeTarget: number;
+  aeTargetMin: number;
+  aeTargetMax: number;
+  // ISO — EdgePLUS only.  isoSupported=false on non-EdgePLUS scopes.
+  isoSupported: boolean;
+  isoRaw: number;          // raw 0..140 (what SetISO actually takes)
+  iso: number;             // mapped real ISO (100..12800)
+  isoStops: number[];      // [100,200,400,800,1600,3200,6400,12800]
+}
+
+interface LedState {
+  flcSupported: boolean;
+  eflcSupported: boolean;
+  flcLevel: number;            // 1..6, UI-owned (no read-back from SDK)
+  flcQuadrants: [boolean, boolean, boolean, boolean]; // Q1..Q4 on/off
+  eflcValues: [number, number, number, number];      // 1..31 per quadrant (EFLC)
+  // Capability ranges, populated from GET /api/microscope/leds:
+  flcLevelMin: number;
+  flcLevelMax: number;
+  flcSwitchOff: number;        // 16
+  flcSwitchAll: number;        // 15
+  eflcQuadrants: number;       // 4
+  eflcValueMin: number;
+  eflcValueMax: number;
+  eflcValueOff: number;        // 32
 }
 
 type QueueItem =
@@ -125,6 +152,16 @@ const App: React.FC = () => {
   const [cameraApplying, setCameraApplying] = useState(false);
   const [cameraApplyResult, setCameraApplyResult] = useState<'ok' | 'error' | null>(null);
   const cameraInFlightRef = useRef(false);
+
+  // Quadrant LED ("Lighting") panel — separate floating widget next to camera.
+  // The SDK has no getter for FLC level / quadrant / EFLC state, so this state
+  // is UI-owned: we initialize from sensible defaults and trust it after that.
+  const [lightingControlsOpen, setLightingControlsOpen] = useState(false);
+  const [ledState, setLedState] = useState<LedState | null>(null);
+  const [ledLoading, setLedLoading] = useState(false);
+  const [ledApplying, setLedApplying] = useState(false);
+  const [ledApplyResult, setLedApplyResult] = useState<'ok' | 'error' | null>(null);
+  const ledInFlightRef = useRef(false);
   
   const [settings, setSettings] = useState<ScanSettings>({
     sampleWidth: 1.0,
@@ -143,7 +180,6 @@ const App: React.FC = () => {
 
   const [capturedImages, setCapturedImages] = useState<CapturedImage[]>([]);
   const [manualCaptures, setManualCaptures] = useState<CapturedImage[]>([]);
-  const [stitchedMosaicUrl, setStitchedMosaicUrl] = useState<string | null>(null);
   const [stackedResults, setStackedResults] = useState<Record<string, StackResult>>({});
   const [depthResults, setDepthResults] = useState<Record<string, DepthResult>>({});
   const [isExporting, setIsExporting] = useState(false);
@@ -154,7 +190,6 @@ const App: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const zipInputRef = useRef<HTMLInputElement>(null);
   const masterQueueRef = useRef<QueueItem[]>([]);
   const lineBufferRef = useRef<string>("");
   const totalQueueSizeRef = useRef<number>(0);
@@ -210,7 +245,6 @@ const App: React.FC = () => {
     if (confirm("DANGER: This will permanently delete all captured images, manual captures, stacked masters, and reset the stitching lab. Continue?")) {
       setCapturedImages([]);
       setManualCaptures([]);
-      setStitchedMosaicUrl(null);
       setStackedResults({});
       setDepthResults({});
       addLog("SYSTEM: Laboratory cleared. Memory reset.");
@@ -295,7 +329,22 @@ const App: React.FC = () => {
     });
   }, [groupedCapturedImages, settings.zStackCount, stackedResults, isScanning]);
 
-  const handleTriggerDepth = async (label: string, images: CapturedImage[], method: DepthMethod = 'laplacian') => {
+  const handleTriggerDepth = async (
+    label: string,
+    images: CapturedImage[],
+    method: DepthMethod = 'laplacian',
+    lastPeakFraction: number = 0.0,
+    bimodalThreshold: number = 0.3,
+    bimodalSpatialRadius: number = 0,
+    bimodalMinProminence: number = 0.0,
+    bimodalMinSeparation: number = 0,
+    bimodalMinDynamicRange: number = 1.0,
+    zSmoothSigma: number = 1.5,
+    surfaceSupportRadiusUm: number = 140,
+    surfaceRegularizationUm: number = 180,
+    surfaceVoidSensitivity: number = 0.35,
+    surfaceZSmoothing: number = 1.0,
+  ) => {
     setFilteredResults(prev => {
       if (!(label in prev)) return prev;
       const next = { ...prev };
@@ -311,11 +360,22 @@ const App: React.FC = () => {
     try {
       const downscaleFactor = (settings.depthDownscale && videoDimensions.width > 2000) ? 2.0 : 1.0;
       const result = await computeDepthMap(
-        images, 
-        method, 
-        downscaleFactor, 
+        images,
+        method,
+        downscaleFactor,
         settings.zStepMicrons,
-        pixelResolution
+        pixelResolution,
+        lastPeakFraction,
+        bimodalThreshold,
+        bimodalSpatialRadius,
+        bimodalMinProminence,
+        bimodalMinSeparation,
+        bimodalMinDynamicRange,
+        zSmoothSigma,
+        surfaceSupportRadiusUm,
+        surfaceRegularizationUm,
+        surfaceVoidSensitivity,
+        surfaceZSmoothing,
       );
       setDepthResults(prev => ({
         ...prev,
@@ -375,14 +435,40 @@ const App: React.FC = () => {
     cameraInFlightRef.current = true;
     setCameraLoading(true);
     try {
-      const res = await fetch('/api/microscope/camera');
-      const data = await res.json();
-      if (data.ok) {
-        const { ok: _ok, error: _err, ...cam } = data;
-        setCameraState(cam as CameraControlState);
+      // Two parallel scope reads: each spawns its own Python+DLL Init() (~2s)
+      // but they run concurrently against separate USB IOCTL queues so the
+      // total wait is still ~2s rather than ~4s.
+      const [camRes, expRes] = await Promise.all([
+        fetch('/api/microscope/camera'),
+        fetch('/api/microscope/exposure'),
+      ]);
+      const camData = await camRes.json();
+      const expData = await expRes.json();
+
+      if (camData.ok && expData.ok) {
+        // Merge: camData has exposure/gain/AE, expData has aeTarget + ISO.
+        // expData also reports AE/exposure but those agree with camData,
+        // so prefer camData's read for those fields.
+        const merged: CameraControlState = {
+          autoExposure: !!camData.autoExposure,
+          exposure:     camData.exposure,
+          exposureMin:  camData.exposureMin,
+          exposureMax:  camData.exposureMax,
+          gain:         camData.gain,
+          gainMin:      camData.gainMin,
+          gainMax:      camData.gainMax,
+          aeTarget:     expData.aeTarget,
+          aeTargetMin:  expData.aeTargetMin,
+          aeTargetMax:  expData.aeTargetMax,
+          isoSupported: !!expData.isoSupported,
+          isoRaw:       expData.isoRaw ?? 0,
+          iso:          expData.iso ?? 100,
+          isoStops:     expData.isoStops ?? [100, 200, 400, 800, 1600, 3200, 6400, 12800],
+        };
+        setCameraState(merged);
       } else {
         setCameraState(null);
-        addLog(`CAMERA CTRL: Read failed — ${data.error}`);
+        addLog(`CAMERA CTRL: Read failed — ${camData.error || expData.error}`);
       }
     } catch {
       setCameraState(null);
@@ -399,18 +485,37 @@ const App: React.FC = () => {
     setCameraApplying(true);
     setCameraApplyResult(null);
     try {
-      const res = await fetch('/api/microscope/camera', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          autoExposure: cameraState.autoExposure,
-          exposure: Math.max(cameraState.exposureMin, Math.min(cameraState.exposureMax, cameraState.exposure)),
-          gain: Math.max(cameraState.gainMin, Math.min(cameraState.gainMax, cameraState.gain)),
+      // Two parallel POSTs: legacy camera endpoint owns AE/exposure/gain,
+      // new exposure endpoint owns Luma (aeTarget) + ISO.
+      const exposurePayload: any = {
+        autoExposure: cameraState.autoExposure,
+        aeTarget:     Math.max(cameraState.aeTargetMin, Math.min(cameraState.aeTargetMax, cameraState.aeTarget)),
+      };
+      if (cameraState.isoSupported) {
+        exposurePayload.isoRaw = Math.max(0, Math.min(140, cameraState.isoRaw));
+      }
+
+      const [camRes, expRes] = await Promise.all([
+        fetch('/api/microscope/camera', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            autoExposure: cameraState.autoExposure,
+            exposure: Math.max(cameraState.exposureMin, Math.min(cameraState.exposureMax, cameraState.exposure)),
+            gain: Math.max(cameraState.gainMin, Math.min(cameraState.gainMax, cameraState.gain)),
+          }),
         }),
-      });
-      const data = await res.json();
-      setCameraApplyResult(data.ok ? 'ok' : 'error');
-      if (!data.ok) addLog(`CAMERA CTRL: Apply failed — ${data.error}`);
+        fetch('/api/microscope/exposure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(exposurePayload),
+        }),
+      ]);
+      const camData = await camRes.json();
+      const expData = await expRes.json();
+      const ok = camData.ok && expData.ok;
+      setCameraApplyResult(ok ? 'ok' : 'error');
+      if (!ok) addLog(`CAMERA CTRL: Apply failed — ${camData.error || expData.error}`);
     } catch {
       setCameraApplyResult('error');
       addLog('CAMERA CTRL: Apply request failed');
@@ -420,6 +525,98 @@ const App: React.FC = () => {
       setTimeout(() => setCameraApplyResult(null), 2000);
     }
   }, [cameraState, addLog]);
+
+  // ---- Lighting (FLC quadrant LEDs) -----------------------------------------
+  const fetchLedState = useCallback(async () => {
+    if (ledInFlightRef.current) return;
+    ledInFlightRef.current = true;
+    setLedLoading(true);
+    try {
+      const res = await fetch('/api/microscope/leds');
+      const data = await res.json();
+      if (data.ok) {
+        // SDK exposes no getters for FLC level / quadrants / eFLC values.
+        // Initialize sensible defaults: brightness mid-range, all quadrants
+        // off (so we don't accidentally blast the LEDs at startup).
+        setLedState({
+          flcSupported:  !!data.flcSupported,
+          eflcSupported: !!data.eflcSupported,
+          flcLevel:      3,
+          flcQuadrants:  [false, false, false, false],
+          eflcValues:    [16, 16, 16, 16],
+          flcLevelMin:   data.flcLevelMin ?? 1,
+          flcLevelMax:   data.flcLevelMax ?? 6,
+          flcSwitchOff:  data.flcSwitchOff ?? 16,
+          flcSwitchAll:  data.flcSwitchAll ?? 15,
+          eflcQuadrants: data.eflcQuadrants ?? 4,
+          eflcValueMin:  data.eflcValueMin ?? 1,
+          eflcValueMax:  data.eflcValueMax ?? 31,
+          eflcValueOff:  data.eflcValueOff ?? 32,
+        });
+      } else {
+        setLedState(null);
+        addLog(`LIGHTING: Read failed — ${data.error}`);
+      }
+    } catch {
+      setLedState(null);
+      addLog('LIGHTING: Server unreachable');
+    } finally {
+      setLedLoading(false);
+      ledInFlightRef.current = false;
+    }
+  }, [addLog]);
+
+  const applyLedSettings = useCallback(async () => {
+    if (!ledState || ledInFlightRef.current) return;
+    ledInFlightRef.current = true;
+    setLedApplying(true);
+    setLedApplyResult(null);
+    try {
+      // Encode quadrant on/off as the SetFLCSwitch bitmask: Q1=1, Q2=2,
+      // Q3=4, Q4=8.  All-off uses the special sentinel value 16.
+      const mask = ledState.flcQuadrants.reduce(
+        (acc, on, i) => acc | (on ? (1 << i) : 0), 0,
+      );
+      const flcSwitch = mask === 0 ? ledState.flcSwitchOff : mask;
+
+      const payload: any = {
+        flcLevel:  Math.max(ledState.flcLevelMin, Math.min(ledState.flcLevelMax, ledState.flcLevel)),
+        flcSwitch: flcSwitch,
+      };
+      // EdgePLUS-only: push per-quadrant brightness.  Quadrants that are
+      // toggled off in the UI get value 32 (= off) so EFLC stays consistent.
+      if (ledState.eflcSupported) {
+        payload.eflc = ledState.eflcValues.map((v, i) => ({
+          quadrant: i + 1,
+          value: ledState.flcQuadrants[i]
+            ? Math.max(ledState.eflcValueMin, Math.min(ledState.eflcValueMax, v))
+            : ledState.eflcValueOff,
+        }));
+      }
+
+      const res = await fetch('/api/microscope/leds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      setLedApplyResult(data.ok ? 'ok' : 'error');
+      if (!data.ok) addLog(`LIGHTING: Apply failed — ${data.error}`);
+    } catch {
+      setLedApplyResult('error');
+      addLog('LIGHTING: Apply request failed');
+    } finally {
+      setLedApplying(false);
+      ledInFlightRef.current = false;
+      setTimeout(() => setLedApplyResult(null), 2000);
+    }
+  }, [ledState, addLog]);
+
+  useEffect(() => {
+    if (lightingControlsOpen && ledState === null && !ledLoading) {
+      fetchLedState();
+    }
+  }, [lightingControlsOpen, ledState, ledLoading, fetchLedState]);
 
   useEffect(() => {
     startCamera();
@@ -657,37 +854,30 @@ const App: React.FC = () => {
     if (!files || files.length === 0) return;
 
     const newImages: CapturedImage[] = [];
-    addLog(`SYSTEM: Scanning ${files.length} items...`);
+    addLog(`SYSTEM: Importing ${files.length} files...`);
 
     try {
-      const fileList = Array.from(files);
-      
-      // 1. Look for metadata.json first
-      let metadata: any = null;
-      const metadataFile = fileList.find(f => f.name === 'metadata.json');
-      if (metadataFile) {
-        const text = await metadataFile.text();
-        metadata = JSON.parse(text);
-        if (metadata.settings) setSettings(metadata.settings);
-        addLog("SYSTEM: Applied capture parameters from metadata.json");
-      }
-
-      for (const file of fileList) {
-        // Handle ZIP files as before
+      for (const file of Array.from(files)) {
         if (file.name.endsWith('.zip')) {
           const zip = await JSZip.loadAsync(file);
-          let zipMetadata: any = null;
+          
+          // Check for metadata.json
+          let metadata: any = null;
           if (zip.files["metadata.json"]) {
             const metaStr = await zip.files["metadata.json"].async("string");
-            zipMetadata = JSON.parse(metaStr);
-            if (zipMetadata.settings) setSettings(zipMetadata.settings);
+            metadata = JSON.parse(metaStr);
+            if (metadata.settings) setSettings(metadata.settings);
+            addLog("SYSTEM: Applied scan settings from metadata.");
           }
 
           const imageFiles = Object.keys(zip.files).filter(name => !zip.files[name].dir && /\.(jpg|jpeg|png)$/i.test(name));
+          
           for (const name of imageFiles) {
             const content = await zip.files[name].async('base64');
             const dataUrl = `data:image/jpeg;base64,${content}`;
-            const metaEntry = zipMetadata?.images?.find((img: any) => img.filename === name);
+            
+            // Try to find in metadata
+            const metaEntry = metadata?.images?.find((img: any) => img.filename === name);
             
             if (metaEntry) {
               newImages.push({
@@ -703,6 +893,7 @@ const App: React.FC = () => {
               const fileName = pathParts[pathParts.length - 1];
               const labelMatch = name.match(/Stack_([A-Z0-9]+)/i) || fileName.match(/^([A-Z0-9]+)_/i);
               const zMatch = fileName.match(/_(\d+)\./);
+              
               const label = labelMatch ? labelMatch[1] : 'IMPORTED';
               const z = zMatch ? parseInt(zMatch[1]) : 0;
               
@@ -716,9 +907,7 @@ const App: React.FC = () => {
               });
             }
           }
-        } 
-        // Handle direct image files (potentially from directory selection)
-        else if (file.type.startsWith('image/')) {
+        } else if (file.type.startsWith('image/')) {
           const reader = new FileReader();
           const dataUrl = await new Promise<string>((resolve) => {
             reader.onload = (e) => resolve(e.target?.result as string);
@@ -726,55 +915,31 @@ const App: React.FC = () => {
           });
 
           const fileName = file.name;
-          const relativePath = (file as any).webkitRelativePath || fileName;
+          const labelMatch = fileName.match(/^([A-Z0-9]+)_/i);
+          const zMatch = fileName.match(/_(\d+)\./);
           
-          // Try to find in root-level metadata first
-          const metaEntry = metadata?.images?.find((img: any) => 
-            img.filename === relativePath || 
-            img.filename.endsWith(fileName) || 
-            relativePath.endsWith(img.filename)
-          );
+          const label = labelMatch ? labelMatch[1] : 'IMPORTED';
+          const z = zMatch ? parseInt(zMatch[1]) : 0;
 
-          if (metaEntry) {
-            newImages.push({
-              id: Math.random().toString(36).substr(2, 9),
-              name: metaEntry.name,
-              label: metaEntry.label,
-              dataUrl,
-              timestamp: metaEntry.timestamp || Date.now(),
-              gridPos: metaEntry.gridPos
-            });
-          } else {
-            // Path-based heuristic: look for Stack_XX in the relative path
-            const labelMatch = relativePath.match(/Stack_([A-Z0-9]+)/i) || fileName.match(/^([A-Z0-9]+)_/i);
-            const zMatch = fileName.match(/_(\d+)\./);
-            
-            const label = labelMatch ? labelMatch[1] : 'IMPORTED';
-            const z = zMatch ? parseInt(zMatch[1]) : 0;
-
-            newImages.push({
-              id: Math.random().toString(36).substr(2, 9),
-              name: fileName.split('.')[0],
-              label,
-              dataUrl,
-              timestamp: Date.now(),
-              gridPos: { r: 0, c: 0, z }
-            });
-          }
+          newImages.push({
+            id: Math.random().toString(36).substr(2, 9),
+            name: fileName.split('.')[0],
+            label,
+            dataUrl,
+            timestamp: Date.now(),
+            gridPos: { r: 0, c: 0, z }
+          });
         }
       }
 
       if (newImages.length > 0) {
-        // Sort images by timestamp/name within labels to help stacking logic if needed
-        newImages.sort((a, b) => a.timestamp - b.timestamp);
         setCapturedImages(prev => [...newImages, ...prev]);
-        addLog(`SYSTEM: Successfully imported ${newImages.length} frames.`);
+        addLog(`SYSTEM: Successfully imported ${newImages.length} images.`);
       }
     } catch (err) {
       addLog(`SYSTEM ERROR: Import failed. ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
-      if (zipInputRef.current) zipInputRef.current.value = '';
     }
   };
 
@@ -828,12 +993,19 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Floating Microscope Feed */}
-      <div className={`fixed bottom-6 right-6 z-50 transition-all duration-500 ease-in-out ${showCamera ? 'w-[320px] md:w-[600px]' : 'w-14 h-14'} overflow-hidden rounded-[2.5rem] border-4 border-slate-800 bg-black shadow-2xl ring-1 ring-white/10`}>
+      {/* Floating Microscope Feed.
+          The OUTER container just positions the widget — overflow-visible
+          so the CAM/LED dropdown panels can pop UPWARD past the rounded
+          video frame and out of the camera widget bounds.  The INNER
+          `relative aspect-video group` div carries the rounded corners,
+          border, and overflow-hidden that clip the actual video. */}
+      <div className={`fixed bottom-6 right-6 z-50 transition-all duration-500 ease-in-out ${showCamera ? 'w-[320px] md:w-[600px]' : 'w-14 h-14'}`}>
         {showCamera ? (
-          <div className="relative aspect-video group">
-             <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-             
+          <div className="relative aspect-video group rounded-[2.5rem] border-4 border-slate-800 bg-black shadow-2xl ring-1 ring-white/10">
+             <div className="absolute inset-0 overflow-hidden rounded-[2rem]">
+                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+             </div>
+
              <div className="absolute bottom-6 left-6 flex flex-col items-start gap-1.5 pointer-events-none">
                 <div className="flex items-baseline gap-2">
                    <div className="h-[2px] bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]" style={{ width: `${scaleBarWidthPx.px / 4}px` }} />
@@ -856,7 +1028,11 @@ const App: React.FC = () => {
                 </div>
              </div>
 
-             {/* Camera Controls — always-visible toggle + collapsible panel */}
+             {/* Camera Controls — always-visible toggle + collapsible panel.
+                 Each toggle wraps its panel in `relative` so the panel can
+                 use `absolute bottom-full` to pop UPWARD into the empty
+                 space above the camera widget — escaping the rounded video
+                 frame's clip rather than fighting it. */}
              <div className="absolute top-6 right-6 flex flex-col items-end gap-2">
                {/* Hover-only utility buttons */}
                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -864,23 +1040,25 @@ const App: React.FC = () => {
                  <button onClick={() => setShowCamera(false)} className="p-3 bg-black/60 rounded-full text-white hover:bg-black transition-colors backdrop-blur-md border border-white/10"><ChevronDown className="w-4 h-4" /></button>
                </div>
 
-               {/* Always-visible camera controls toggle */}
-               <button
-                 onClick={() => setCameraControlsOpen(v => {
-                   if (!v) setCameraState(null);
-                   return !v;
-                 })}
-                 title="Camera Controls"
-                 className="flex items-center gap-1.5 px-2.5 py-1.5 bg-black/60 backdrop-blur-md border border-white/10 rounded-full text-white hover:bg-slate-800 transition-all text-[10px] font-bold"
-               >
-                 <Camera className="w-3 h-3" />
-                 <span className="hidden md:inline">CAM</span>
-                 <ChevronDown className={`w-3 h-3 transition-transform ${cameraControlsOpen ? 'rotate-180' : ''}`} />
-               </button>
+               {/* CAM: toggle button with pop-UP panel (absolute bottom-full
+                   anchors the panel above the button so it grows into the
+                   empty space above the camera widget). */}
+               <div className="relative">
+                 <button
+                   onClick={() => setCameraControlsOpen(v => {
+                     if (!v) setCameraState(null);
+                     return !v;
+                   })}
+                   title="Camera Controls"
+                   className="flex items-center gap-1.5 px-2.5 py-1.5 bg-black/60 backdrop-blur-md border border-white/10 rounded-full text-white hover:bg-slate-800 transition-all text-[10px] font-bold"
+                 >
+                   <Camera className="w-3 h-3" />
+                   <span className="hidden md:inline">CAM</span>
+                   <ChevronDown className={`w-3 h-3 transition-transform ${cameraControlsOpen ? 'rotate-180' : ''}`} />
+                 </button>
 
-               {/* Collapsible camera controls panel */}
-               {cameraControlsOpen && (
-                 <div className="w-52 bg-slate-900/90 backdrop-blur-xl border border-slate-700/60 rounded-2xl p-4 flex flex-col gap-3 shadow-2xl">
+                 {cameraControlsOpen && (
+                   <div className="absolute bottom-full right-0 mb-2 w-52 max-h-[80vh] overflow-y-auto overscroll-contain bg-slate-900/90 backdrop-blur-xl border border-slate-700/60 rounded-2xl p-4 pb-5 flex flex-col gap-3 shadow-2xl scope-panel-scroll">
                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Camera Controls</p>
 
                    {cameraLoading && (
@@ -955,6 +1133,55 @@ const App: React.FC = () => {
                          />
                        </div>
 
+                       {/* Luma (AE target) — DinoCapture's "Luma" slider.
+                           Only meaningful when AE is on, but the SDK still
+                           accepts SetAETarget either way. */}
+                       <div className={`flex flex-col gap-1 ${cameraState.autoExposure ? '' : 'opacity-40 pointer-events-none'}`}>
+                         <div className="flex justify-between">
+                           <span className="text-[10px] font-bold text-slate-300">Luma</span>
+                           <span className="text-[10px] font-mono text-cyan-400">{cameraState.aeTarget}</span>
+                         </div>
+                         <input
+                           type="range"
+                           min={cameraState.aeTargetMin}
+                           max={cameraState.aeTargetMax}
+                           value={cameraState.aeTarget}
+                           disabled={!cameraState.autoExposure}
+                           onChange={e => setCameraState(s => s ? { ...s, aeTarget: Number(e.target.value) } : s)}
+                           className="w-full accent-cyan-500"
+                         />
+                       </div>
+
+                       {/* ISOmax — EdgePLUS only.  Discrete stops mapped via
+                           SetISO raw 0..140 → real ISO 100..12800. */}
+                       {cameraState.isoSupported && (
+                         <div className="flex flex-col gap-1">
+                           <div className="flex justify-between">
+                             <span className="text-[10px] font-bold text-slate-300">ISOmax</span>
+                             <span className="text-[10px] font-mono text-cyan-400">{cameraState.iso}</span>
+                           </div>
+                           <input
+                             type="range"
+                             min={0}
+                             max={cameraState.isoStops.length - 1}
+                             step={1}
+                             value={Math.max(0, cameraState.isoStops.indexOf(cameraState.iso))}
+                             onChange={e => {
+                               const idx = Number(e.target.value);
+                               const iso = cameraState.isoStops[idx];
+                               // Real ISO = 100 * 2^(raw/20) → raw = 20*log2(iso/100)
+                               const raw = Math.round(20 * Math.log2(iso / 100));
+                               setCameraState(s => s ? { ...s, iso, isoRaw: raw } : s);
+                             }}
+                             className="w-full accent-cyan-500"
+                           />
+                           <div className="flex justify-between text-[8px] font-mono text-slate-500">
+                             <span>{cameraState.isoStops[0]}</span>
+                             <span>{cameraState.isoStops[cameraState.isoStops.length - 1]}</span>
+                           </div>
+                         </div>
+                       )}
+
                        {/* Apply button */}
                        <button
                          onClick={applyCameraSettings}
@@ -979,10 +1206,189 @@ const App: React.FC = () => {
                    )}
                  </div>
                )}
+               </div>
+
+               {/* LED: same pop-UP pattern as the CAM panel above. */}
+               <div className="relative">
+                 <button
+                   onClick={() => setLightingControlsOpen(v => {
+                     if (!v) setLedState(null);
+                     return !v;
+                   })}
+                   title="Quadrant LED Lighting"
+                   className="flex items-center gap-1.5 px-2.5 py-1.5 bg-black/60 backdrop-blur-md border border-white/10 rounded-full text-white hover:bg-slate-800 transition-all text-[10px] font-bold"
+                 >
+                   <Lightbulb className="w-3 h-3" />
+                   <span className="hidden md:inline">LED</span>
+                   <ChevronDown className={`w-3 h-3 transition-transform ${lightingControlsOpen ? 'rotate-180' : ''}`} />
+                 </button>
+
+                 {lightingControlsOpen && (
+                   <div className="absolute bottom-full right-0 mb-2 w-52 max-h-[80vh] overflow-y-auto overscroll-contain bg-slate-900/90 backdrop-blur-xl border border-slate-700/60 rounded-2xl p-4 pb-5 flex flex-col gap-3 shadow-2xl scope-panel-scroll">
+                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Quadrant Lighting</p>
+
+                   {ledLoading && (
+                     <div className="flex items-center gap-2 text-slate-400 text-[10px]">
+                       <Loader2 className="w-3 h-3 animate-spin" />
+                       Probing scope…
+                     </div>
+                   )}
+
+                   {!ledLoading && ledState === null && (
+                     <div className="flex flex-col gap-2">
+                       <p className="text-[10px] text-red-400">Could not probe LED capabilities</p>
+                       <button
+                         onClick={fetchLedState}
+                         className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 text-left"
+                       >
+                         Retry
+                       </button>
+                     </div>
+                   )}
+
+                   {!ledLoading && ledState !== null && !ledState.flcSupported && (
+                     <p className="text-[10px] text-amber-400">
+                       This Dino-Lite model does not have FLC quadrant LEDs.
+                     </p>
+                   )}
+
+                   {!ledLoading && ledState !== null && ledState.flcSupported && (
+                     <>
+                       {/* Brightness slider (SetFLCLevel) */}
+                       <div className="flex flex-col gap-1">
+                         <div className="flex justify-between">
+                           <span className="text-[10px] font-bold text-slate-300">Brightness</span>
+                           <span className="text-[10px] font-mono text-cyan-400">{ledState.flcLevel}/{ledState.flcLevelMax}</span>
+                         </div>
+                         <input
+                           type="range"
+                           min={ledState.flcLevelMin}
+                           max={ledState.flcLevelMax}
+                           step={1}
+                           value={ledState.flcLevel}
+                           onChange={e => setLedState(s => s ? { ...s, flcLevel: Number(e.target.value) } : s)}
+                           className="w-full accent-cyan-500"
+                         />
+                       </div>
+
+                       {/* Quadrant 2x2 toggle grid (SetFLCSwitch bitmask).
+                           Positions match the physical scope ring:
+                              Q1 (top-left)    Q2 (top-right)
+                              Q3 (bottom-left) Q4 (bottom-right) */}
+                       <div className="flex flex-col gap-1">
+                         <div className="flex justify-between items-center">
+                           <span className="text-[10px] font-bold text-slate-300">Quadrants</span>
+                           <div className="flex gap-1">
+                             <button
+                               onClick={() => setLedState(s => s ? { ...s, flcQuadrants: [true, true, true, true] } : s)}
+                               className="text-[8px] font-bold text-cyan-400 hover:text-cyan-300 px-1.5 py-0.5 bg-slate-800 rounded"
+                               title="Turn all on"
+                             >
+                               ALL
+                             </button>
+                             <button
+                               onClick={() => setLedState(s => s ? { ...s, flcQuadrants: [false, false, false, false] } : s)}
+                               className="text-[8px] font-bold text-slate-400 hover:text-slate-300 px-1.5 py-0.5 bg-slate-800 rounded"
+                               title="Turn all off"
+                             >
+                               OFF
+                             </button>
+                           </div>
+                         </div>
+                         <div className="grid grid-cols-2 gap-1">
+                           {[
+                             { idx: 0, label: 'Q1' },  // top-left
+                             { idx: 1, label: 'Q2' },  // top-right
+                             { idx: 2, label: 'Q3' },  // bottom-left
+                             { idx: 3, label: 'Q4' },  // bottom-right
+                           ].map(({ idx, label }) => {
+                             const on = ledState.flcQuadrants[idx];
+                             return (
+                               <button
+                                 key={idx}
+                                 onClick={() => setLedState(s => {
+                                   if (!s) return s;
+                                   const next = [...s.flcQuadrants] as [boolean, boolean, boolean, boolean];
+                                   next[idx] = !next[idx];
+                                   return { ...s, flcQuadrants: next };
+                                 })}
+                                 className={`flex items-center justify-center gap-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all ${
+                                   on
+                                     ? 'bg-amber-400 text-slate-900 border-amber-300 shadow-md shadow-amber-400/30'
+                                     : 'bg-slate-800 text-slate-500 border-slate-700 hover:text-slate-300'
+                                 }`}
+                               >
+                                 <Lightbulb className={`w-3 h-3 ${on ? 'fill-current' : ''}`} />
+                                 {label}
+                               </button>
+                             );
+                           })}
+                         </div>
+                       </div>
+
+                       {/* Per-quadrant brightness (EFLC) — EdgePLUS only */}
+                       {ledState.eflcSupported && (
+                         <div className="flex flex-col gap-1.5 pt-1 border-t border-slate-800">
+                           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Per-Quadrant (EFLC)</span>
+                           {(['Q1', 'Q2', 'Q3', 'Q4'] as const).map((label, idx) => {
+                             const on = ledState.flcQuadrants[idx];
+                             const v  = ledState.eflcValues[idx];
+                             return (
+                               <div key={idx} className={`flex flex-col gap-0.5 ${on ? '' : 'opacity-40 pointer-events-none'}`}>
+                                 <div className="flex justify-between">
+                                   <span className="text-[10px] font-bold text-slate-300">{label}</span>
+                                   <span className="text-[10px] font-mono text-cyan-400">{v}</span>
+                                 </div>
+                                 <input
+                                   type="range"
+                                   min={ledState.eflcValueMin}
+                                   max={ledState.eflcValueMax}
+                                   step={1}
+                                   value={v}
+                                   disabled={!on}
+                                   onChange={e => setLedState(s => {
+                                     if (!s) return s;
+                                     const next = [...s.eflcValues] as [number, number, number, number];
+                                     next[idx] = Number(e.target.value);
+                                     return { ...s, eflcValues: next };
+                                   })}
+                                   className="w-full accent-cyan-500"
+                                 />
+                               </div>
+                             );
+                           })}
+                         </div>
+                       )}
+
+                       {/* Apply button */}
+                       <button
+                         onClick={applyLedSettings}
+                         disabled={ledApplying}
+                         className={`w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                           ledApplyResult === 'ok'
+                             ? 'bg-emerald-500 text-white'
+                             : ledApplyResult === 'error'
+                             ? 'bg-red-500 text-white'
+                             : 'bg-cyan-500 text-slate-900 hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed'
+                         }`}
+                       >
+                         {ledApplying
+                           ? <Loader2 className="w-3 h-3 animate-spin" />
+                           : ledApplyResult === 'ok'
+                           ? 'Applied ✓'
+                           : ledApplyResult === 'error'
+                           ? 'Error ✗'
+                           : 'Apply'}
+                       </button>
+                     </>
+                   )}
+                 </div>
+               )}
+               </div>
              </div>
           </div>
         ) : (
-          <button onClick={() => setShowCamera(true)} className="w-full h-full flex items-center justify-center bg-cyan-500 text-slate-900 shadow-lg hover:scale-110 transition-transform"><Camera className="w-6 h-6" /></button>
+          <button onClick={() => setShowCamera(true)} className="w-full h-full flex items-center justify-center bg-cyan-500 text-slate-900 shadow-lg hover:scale-110 transition-transform rounded-[2.5rem] border-4 border-slate-800"><Camera className="w-6 h-6" /></button>
         )}
       </div>
 
@@ -1121,7 +1527,7 @@ const App: React.FC = () => {
                         </div>
                         {!amrLive && amrError && (
                           <p className="text-[10px] font-bold text-slate-500 truncate" title={amrError}>
-                            {amrError === 'unsupported' ? 'Manual entry — microscope not detected' : `Error: ${amrError}`}
+                            Manual entry — microscope not detected
                           </p>
                         )}
                       </div>
@@ -1270,39 +1676,21 @@ const App: React.FC = () => {
             rotateFrames={rotateFrames}
           />
         )}
-        {activeTab === 'stitching' && (
-          <StitchingView 
-            images={capturedImages} 
-            stackedResults={stackedResults} 
-            grid={grid} 
-            settings={settings}
-            stitchedMosaicUrl={stitchedMosaicUrl}
-            setStitchedMosaicUrl={setStitchedMosaicUrl}
-          />
-        )}
+        {activeTab === 'stitching' && <StitchingView images={capturedImages} stackedResults={stackedResults} grid={grid} settings={settings} />}
         {activeTab === 'gallery' && (
           <div className="space-y-8 animate-in fade-in duration-500">
             <div className="flex justify-between items-end">
               <div><h2 className="text-2xl font-black text-white">Capture Library</h2><p className="text-xs text-slate-500 uppercase tracking-widest mt-1">Managed Z-Stack Repositories</p></div>
               <div className="flex gap-4">
-                <button onClick={() => fileInputRef.current?.click()} className="px-6 py-3 bg-slate-800 text-white border border-slate-700 rounded-2xl font-black text-xs hover:bg-slate-700 transition-all flex items-center gap-2" title="Select a project folder containing Stack_XX subfolders">
-                  <FileUp className="w-4 h-4" /> Import Project Folder
+                <button onClick={() => fileInputRef.current?.click()} className="px-6 py-3 bg-slate-800 text-white border border-slate-700 rounded-2xl font-black text-xs hover:bg-slate-700 transition-all flex items-center gap-2">
+                  <FileUp className="w-4 h-4" /> Import Scan Data
                 </button>
                 <input 
                   type="file" 
                   ref={fileInputRef} 
                   className="hidden" 
-                  {...({ webkitdirectory: "", directory: "" } as any)}
-                  onChange={handleImportFiles} 
-                />
-                <button onClick={() => zipInputRef.current?.click()} className="px-6 py-3 bg-slate-800/50 text-slate-300 border border-slate-700 rounded-2xl font-black text-xs hover:bg-slate-700 transition-all flex items-center gap-2" title="Import a previously exported project ZIP">
-                  <FileArchive className="w-4 h-4" /> Import Project ZIP
-                </button>
-                <input 
-                  type="file" 
-                  ref={zipInputRef} 
-                  className="hidden" 
-                  accept=".zip"
+                  accept=".zip,image/*" 
+                  multiple 
                   onChange={handleImportFiles} 
                 />
                 <button onClick={handleDownloadAllStructured} className="px-6 py-3 bg-cyan-500 text-slate-900 rounded-2xl font-black text-xs shadow-xl active:scale-95 transition-all"><FolderDown className="w-4 h-4 inline mr-2" /> Download Project ZIP</button>
