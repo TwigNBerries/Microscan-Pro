@@ -42,7 +42,8 @@ import {
   Map,
   FileUp,
   Sliders,
-  Lightbulb
+  Lightbulb,
+  Check
 } from 'lucide-react';
 
 interface CameraControlState {
@@ -1157,7 +1158,7 @@ const App: React.FC = () => {
                        {cameraState.isoSupported && (
                          <div className="flex flex-col gap-1">
                            <div className="flex justify-between">
-                             <span className="text-[10px] font-bold text-slate-300">ISOmax</span>
+                             <span className="text-[10px] font-bold text-slate-300">ISO</span>
                              <span className="text-[10px] font-mono text-cyan-400">{cameraState.iso}</span>
                            </div>
                            <input

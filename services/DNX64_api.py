@@ -15,6 +15,7 @@ METHOD_SIGNATURES: dict = {
     "GetDeviceId": ([ctypes.c_int], ctypes.c_wchar_p),
     "GetDeviceIDA": ([ctypes.c_int], ctypes.c_char_p),
     "GetExposureValue": ([ctypes.c_int], ctypes.c_long),
+    "GetISO": ([ctypes.c_int], ctypes.c_long),
     "GetLensFinePosLimits": (
         [ctypes.c_long, ctypes.POINTER(ctypes.c_long), ctypes.POINTER(ctypes.c_long)],
         ctypes.c_long,
@@ -44,6 +45,7 @@ METHOD_SIGNATURES: dict = {
     "SetAimpointLevel": ([ctypes.c_int, ctypes.c_long], None),
     "SetAXILevel": ([ctypes.c_int, ctypes.c_long], None),
     "SetExposureValue": ([ctypes.c_int, ctypes.c_long], None),
+    "SetISO": ([ctypes.c_int, ctypes.c_long], None),
     "SetEFLC": ([ctypes.c_int, ctypes.c_long, ctypes.c_long], None),
     "SetFLCSwitch": ([ctypes.c_int, ctypes.c_long], None),
     "SetFLCLevel": ([ctypes.c_int, ctypes.c_long], None),
@@ -267,6 +269,18 @@ class DNX64:
         """
         return self.dnx64.GetExposureValue(device_index)
 
+    def GetISO(self, device_index: int) -> int:
+        """
+        Get ISO value for specified device (EdgePLUS only).
+
+        Parameters:
+            device_index (int): Index of the device.
+
+        Returns:
+            int: ISO raw value (0..140).
+        """
+        return self.dnx64.GetISO(device_index)
+
     def GetLensFinePosLimits(self, device_index: int) -> Tuple[int, int]:
         """
         REQUIRES DINO-LITE WITH EDOF FEATURE
@@ -471,6 +485,16 @@ class DNX64:
             exposure_value (int): Exposure value.
         """
         self.dnx64.SetExposureValue(device_index, exposure_value)
+
+    def SetISO(self, device_index: int, iso_value: int) -> None:
+        """
+        Set ISO value for specified device (EdgePLUS only).
+
+        Parameters:
+            device_index (int): Index of the device.
+            iso_value (int): ISO raw value (0..140).
+        """
+        self.dnx64.SetISO(device_index, iso_value)
 
     def SetFLCSwitch(self, device_index: int, flc_quadrant: int) -> None:
         """
