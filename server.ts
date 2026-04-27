@@ -287,8 +287,8 @@ async function startServer() {
     const scriptPath = path.join(process.cwd(), "services", "set_exposure.py");
     const args = [scriptPath];
     if (typeof autoExposure === 'boolean') args.push("--ae", autoExposure ? "1" : "0");
-    if (typeof aeTarget === 'number') args.push("--ae-target", String(Math.round(aeTarget)));
-    if (typeof isoRaw === 'number') args.push("--iso", String(Math.round(isoRaw)));
+    if (typeof aeTarget === 'number') args.push("--aetarget", String(Math.round(aeTarget)));
+    if (typeof isoRaw === 'number') args.push("--iso-raw", String(Math.round(isoRaw)));
 
     const proc = spawn(pythonExec, args);
     let stdout = "";
@@ -345,7 +345,7 @@ async function startServer() {
     if (Array.isArray(eflc)) {
       eflc.forEach((item: any) => {
         if (typeof item.quadrant === 'number' && typeof item.value === 'number') {
-          args.push("--eflc-idx", String(item.quadrant), "--eflc-value", String(item.value));
+          args.push("--eflc", `${item.quadrant},${item.value}`);
         }
       });
     }
