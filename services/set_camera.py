@@ -38,16 +38,25 @@ def find_matching_dll(services_dir, target_bitness):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--ae', type=int, required=True, choices=[0, 1],
+    parser.add_argument('--ae',       type=int, choices=[0, 1], default=None,
                         help='Auto-exposure: 0=off, 1=on')
-    parser.add_argument('--exposure', type=int, required=True,
+    parser.add_argument('--exposure', type=int, default=None,
                         help='Exposure value (0-32767)')
-    parser.add_argument('--gain', type=int, required=True,
+    parser.add_argument('--gain',     type=int, default=None,
                         help='Gain value (within hardware range)')
+    parser.add_argument('--aetarget', type=int, default=None,
+                        help='Luma (AE target) value, 16..220')
+    parser.add_argument('--iso-raw',  type=int, default=None, dest='iso_raw',
+                        help='Raw ISO value, 0..140 (EdgePLUS only)')
     args = parser.parse_args()
+
+    if args.ae is None and args.exposure is None and args.gain is None and args.aetarget is None and args.iso_raw is None:
+        emit({"ok": False, "error": "No camera parameters provided"})
+        return
 
     services_dir = os.path.dirname(os.path.abspath(__file__))
     log(f"services_dir = {services_dir}")
+
 
     import struct
     bitness = 8 * struct.calcsize('P')
@@ -121,17 +130,29 @@ def main():
             emit({"ok": False, "error": "Microscope not detected. Is it plugged in and not claimed by DinoCapture?"})
             return
 
-        log(f"calling SetAutoExposure(0, {args.ae})")
-        scope.SetAutoExposure(0, args.ae)
+        if args.ae is not None:
+            log(f"calling SetAutoExposure(0, {args.ae})")
+            scope.SetAutoExposure(0, args.ae)
 
-        if args.ae == 0:
+        if args.exposure is not None:
             log(f"calling SetExposureValue(0, {args.exposure})")
             scope.SetExposureValue(0, args.exposure)
-            log(f"calling SetVideoProcAmp(9, {args.gain})  [gain]")
+
+        if args.gain is not None:
+            log(f"calling SetVideoProcAmp(9, {args.gain}) [gain]")
             scope.SetVideoProcAmp(9, args.gain)
 
-        # ok: true means the SDK calls were issued without exception.
-        # It does not confirm hardware state changed — there is no read-back.
+        if args.aetarget is not None:
+            log(f"calling SetAETarget(0, {args.aetarget}) [Luma]")
+            scope.SetAETarget(0, args.aetarget)
+
+        if args.iso_raw is not None:
+            log(f"calling SetISO(0, {args.iso_raw})")
+            try:
+                scope.SetISO(0, args.iso_raw)
+            except Exception as e:
+                log(f"SetISO failed: {e}")
+
         emit({"ok": True})
 
     except Exception as e:

@@ -137,7 +137,18 @@ export const computeDepthMap = async (
   method: DepthMethod = 'laplacian',
   downscaleFactor: number = 1.0,
   zStepMicrons: number = 100,
-  pixelResolutionUm: number = 1.0
+  pixelResolutionUm: number = 1.0,
+  lastPeakFraction: number = 0.8,
+  bimodalThreshold: number = 0.5,
+  bimodalSpatialRadius: number = 1,
+  bimodalMinProminence: number = 0.1,
+  bimodalMinSeparation: number = 2,
+  bimodalMinDynamicRange: number = 0.1,
+  zSmoothSigma: number = 1.0,
+  surfaceSupportRadiusUm: number = 200,
+  surfaceRegularizationUm: number = 50,
+  surfaceVoidSensitivity: number = 0.5,
+  surfaceZSmoothing: number = 1.0
 ): Promise<DepthMapResult> => {
   if (images.length < 3) throw new Error("Need at least 3 images for Gaussian fit");
 
@@ -157,7 +168,18 @@ export const computeDepthMap = async (
         zStepMicrons,
         downscale: downscaleFactor,
         pixelResolutionUm,
-        xyCalibration: 1.0
+        xyCalibration: 1.0,
+        lastPeakFraction,
+        bimodalThreshold,
+        bimodalSpatialRadius,
+        bimodalMinProminence,
+        bimodalMinSeparation,
+        bimodalMinDynamicRange,
+        zSmoothSigma,
+        surfaceSupportRadiusUm,
+        surfaceRegularizationUm,
+        surfaceVoidSensitivity,
+        surfaceZSmoothing
       }
     }),
   });

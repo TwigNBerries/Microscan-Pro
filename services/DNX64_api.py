@@ -54,7 +54,7 @@ METHOD_SIGNATURES: dict = {
     "SetLensFinePos": ([ctypes.c_int, ctypes.c_long], None),
     "SetLensPos": ([ctypes.c_int, ctypes.c_long], None),
     "SetVideoDeviceIndex": ([ctypes.c_int], None),
-    "SetVideoProcAmp": ([ctypes.c_long], None),
+    "SetVideoProcAmp": ([ctypes.c_long, ctypes.c_long], None),
     "SetEventCallback": ([ctypes.CFUNCTYPE(None)], None),
 }
 

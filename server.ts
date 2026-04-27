@@ -203,23 +203,17 @@ async function startServer() {
     if (!pythonExec) {
       return res.status(500).json({ ok: false, error: "Python not available" });
     }
-    const { autoExposure, exposure, gain } = req.body as {
-      autoExposure: boolean;
-      exposure: number;
-      gain: number;
-    };
-    if (typeof autoExposure !== "boolean" || typeof exposure !== "number" || typeof gain !== "number") {
-      return res.status(400).json({ ok: false, error: "Invalid parameters" });
-    }
-
+    const { autoExposure, exposure, gain, aeTarget, isoRaw } = req.body;
     await acquireMicroscope();
     const scriptPath = path.join(process.cwd(), "services", "set_camera.py");
-    const proc = spawn(pythonExec, [
-      scriptPath,
-      "--ae", autoExposure ? "1" : "0",
-      "--exposure", String(Math.round(exposure)),
-      "--gain", String(Math.round(gain)),
-    ]);
+    const args = [scriptPath];
+    if (typeof autoExposure === 'boolean') args.push("--ae", autoExposure ? "1" : "0");
+    if (typeof exposure === 'number') args.push("--exposure", String(Math.round(exposure)));
+    if (typeof gain === 'number') args.push("--gain", String(Math.round(gain)));
+    if (typeof aeTarget === 'number') args.push("--aetarget", String(Math.round(aeTarget)));
+    if (typeof isoRaw === 'number') args.push("--iso-raw", String(Math.round(isoRaw)));
+
+    const proc = spawn(pythonExec, args);
     let stdout = "";
     let stderr = "";
 

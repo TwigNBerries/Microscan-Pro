@@ -486,37 +486,25 @@ const App: React.FC = () => {
     setCameraApplying(true);
     setCameraApplyResult(null);
     try {
-      // Two parallel POSTs: legacy camera endpoint owns AE/exposure/gain,
-      // new exposure endpoint owns Luma (aeTarget) + ISO.
-      const exposurePayload: any = {
+      // Single POST to /api/microscope/camera handles all parameters at once.
+      const payload: any = {
         autoExposure: cameraState.autoExposure,
-        aeTarget:     Math.max(cameraState.aeTargetMin, Math.min(cameraState.aeTargetMax, cameraState.aeTarget)),
+        exposure:     cameraState.exposure,
+        gain:         cameraState.gain,
+        aeTarget:     cameraState.aeTarget,
       };
       if (cameraState.isoSupported) {
-        exposurePayload.isoRaw = Math.max(0, Math.min(140, cameraState.isoRaw));
+        payload.isoRaw = cameraState.isoRaw;
       }
 
-      const [camRes, expRes] = await Promise.all([
-        fetch('/api/microscope/camera', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            autoExposure: cameraState.autoExposure,
-            exposure: Math.max(cameraState.exposureMin, Math.min(cameraState.exposureMax, cameraState.exposure)),
-            gain: Math.max(cameraState.gainMin, Math.min(cameraState.gainMax, cameraState.gain)),
-          }),
-        }),
-        fetch('/api/microscope/exposure', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(exposurePayload),
-        }),
-      ]);
-      const camData = await camRes.json();
-      const expData = await expRes.json();
-      const ok = camData.ok && expData.ok;
-      setCameraApplyResult(ok ? 'ok' : 'error');
-      if (!ok) addLog(`CAMERA CTRL: Apply failed — ${camData.error || expData.error}`);
+      const res = await fetch('/api/microscope/camera', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      setCameraApplyResult(data.ok ? 'ok' : 'error');
+      if (!data.ok) addLog(`CAMERA CTRL: Apply failed — ${data.error}`);
     } catch {
       setCameraApplyResult('error');
       addLog('CAMERA CTRL: Apply request failed');
